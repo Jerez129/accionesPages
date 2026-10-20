@@ -290,11 +290,13 @@ details.card > summary > span{display:flex;flex-direction:column;gap:2px}
 (function(){
 'use strict';
 /* Planificador de reuniones de REFERENCIA.xlsx (DC Bavaro, julio 2026).
-   [Rutina, Frecuencia, Responsable, Área, Aplica]. Diarias: martes a viernes; semanales: lunes; mensuales: día 30. */
+   [Rutina, Frecuencia, Responsable, Área, Aplica, días de la semana (0 = lunes)].
+   Diarias: martes a viernes, salvo Cambio de turno almacén y Matutina de Distribución, de lunes a sábado.
+   Semanales: lunes; mensuales: día 30. Las reuniones de almacén son de Kervin Mercedes. */
 var DEFAULT_CAT = [
   ['Diaria Logistica','Diaria','Johansell Perez','Gestion',1],
-  ['Cambio de turno almacén','Diaria','TBA','Almacen',1],
-  ['Matutina de Distribución','Diaria','Luis Eduardo','Distribucion',1],
+  ['Cambio de turno almacén','Diaria','Kervin Mercedes','Almacen',1,[0,1,2,3,4,5]],
+  ['Matutina de Distribución','Diaria','Luis Eduardo','Distribucion',1,[0,1,2,3,4,5]],
   ['Matinal de Flota','Diaria','Carlos de la Cruz','Flota',0],
   ['Auditoría en ruta (diaria)','Diaria','','',0],
   ['Inspección en sitio (diaria)','Diaria','','',0],
@@ -304,7 +306,7 @@ var DEFAULT_CAT = [
   ['Semanal Ventas y Logística (RCOG)','Semanal','Luis Eduardo','Gestion',1],
   ['Rutina semanal de distribución','Semanal','Luis Eduardo','Gestion',1],
   ['Semanal de Flota','Semanal','Carlos de la Cruz','Flota',1],
-  ['Semanal de Almacén','Semanal','TBA','Almacen',1],
+  ['Semanal de Almacén','Semanal','Kervin Mercedes','Almacen',1],
   ['Revisar salida de rutas (diaria)','Semanal','','',0],
   ['Revisar salida de rutas (semanal)','Semanal','','',0],
   ['Rutina semanal de Gestión','Semanal','','',0],
@@ -318,7 +320,7 @@ var DEFAULT_CAT = [
   ['Inspección en sitio (mensual)','Mensual','Luis Eduardo','Almacen',1],
   ['Paquetes de gastos','Mensual','Johansell Perez','Gestion',1],
   ['Supermatutina Distribución','Mensual','Luis Eduardo','Gestion',1],
-  ['Supervespertina Almacen','Mensual','TBA','Almacen',1],
+  ['Supervespertina Almacen','Mensual','Kervin Mercedes','Almacen',1],
   ['Mensual de calidad','Mensual','','',0],
   ['PRP GRO','Mensual','','',0],
   ['Auditoría en ruta (mensual)','Mensual','','',0],
@@ -326,7 +328,7 @@ var DEFAULT_CAT = [
   ['Rutina Mensual financiera (Inventarios)','Mensual','Jordan Ceballos','Almacen',0],
   ['Ronda de Blindaje','Mensual','Dayloren Brazoban','People',0],
   ['Monitoreo de Gestión de CAPEX','Mensual','','',0],
-  ['Mensual de Almacén','Mensual','','',0],
+  ['Mensual de Almacén','Mensual','Kervin Mercedes','Almacen',0],
   ['Comite de Seguridad y Salud Ocupacional','Puntual','','',0],
   ['Check to Coach','Puntual','','',0]
 ];
@@ -344,7 +346,18 @@ var DAY = 86400000;
 function mkRoutine(name,freq,resp,area,aplica){
   return {name:name, freq:freq, resp:resp||'', area:area||'', aplica:!!aplica, wds:[1,2,3,4], wd:0, dom:30, tol:TOL[freq]!=null?TOL[freq]:1};
 }
-function defCat(){ return DEFAULT_CAT.map(function(a){ return mkRoutine(a[0],a[1],a[2],a[3],a[4]); }); }
+function defCat(){ return DEFAULT_CAT.map(function(a){ var r=mkRoutine(a[0],a[1],a[2],a[3],a[4]); if(a[5]) r.wds=a[5].slice(); return r; }); }
+/* Cambios a la lista original. Se aplican una vez a las listas guardadas en el navegador con una versión anterior. */
+var CAT_V = 2;
+function upgradeCat(v){
+  if(v>=2) return;
+  var d=defCat();
+  ['Cambio de turno almacén','Matutina de Distribución'].forEach(function(n){ var c=catBy(n); if(c && c.freq==='Diaria') c.wds=[0,1,2,3,4,5]; });
+  ['Cambio de turno almacén','Semanal de Almacén','Supervespertina Almacen','Mensual de Almacén'].forEach(function(n){
+    var c=catBy(n), o=d.filter(function(x){ return rk(x)===norm(n); })[0];
+    if(c && (!c.resp || norm(c.resp)==='tba')){ c.resp=o.resp; if(!c.area) c.area=o.area; }
+  });
+}
 /* cals: un calendario de reuniones por mes ("2026-10"), con sus rutinas y los días (1–31) marcados. */
 var S = {acts:[], fileName:'', agency:'', cat:defCat(), cals:{}, calKey:null, meta:0.9, month:null, view:'cum', freq:'all', area:'all', hasta:null, showAll:false,
   showOff:false, defOpen:false, q:'', pil:'all', est:'all', lim:100};
@@ -374,14 +387,14 @@ function isDone(e){ return norm(e)==='completed'; }
 
 /* ---------- Persistencia (solo comodidad de este navegador) ---------- */
 function save(){
-  try{ localStorage.setItem(KEY, JSON.stringify({cat:S.cat, cals:S.cals, calKey:S.calKey, meta:S.meta, fileName:S.fileName, agency:S.agency, month:S.month, view:S.view,
+  try{ localStorage.setItem(KEY, JSON.stringify({cat:S.cat, catV:CAT_V, cals:S.cals, calKey:S.calKey, meta:S.meta, fileName:S.fileName, agency:S.agency, month:S.month, view:S.view,
     freq:S.freq, area:S.area, hasta:S.hasta, showAll:S.showAll, showOff:S.showOff, defOpen:S.defOpen,
     acts:S.acts.map(function(a){ return [a.id,a.rt,a.dn,a.hm,a.owner,a.pos,a.pil,a.kpi,a.tool,a.desc,a.inv,a.est,a.comp,a.org]; })})); }catch(_){}
 }
 function load(){
   try{
     var o=JSON.parse(localStorage.getItem(KEY)||'null'); if(!o) return;
-    if(Array.isArray(o.cat) && o.cat.length) S.cat=o.cat.filter(function(r){ return r && r.name; }).map(function(r){ var b=mkRoutine(r.name,r.freq,r.resp,r.area,r.aplica); return Object.assign(b,r); });
+    if(Array.isArray(o.cat) && o.cat.length){ S.cat=o.cat.filter(function(r){ return r && r.name; }).map(function(r){ var b=mkRoutine(r.name,r.freq,r.resp,r.area,r.aplica); return Object.assign(b,r); }); upgradeCat(+o.catV||1); }
     if(o.cals && typeof o.cals==='object') Object.keys(o.cals).forEach(function(k){
       var c=o.cals[k]; if(/^\d{4}-\d{2}$/.test(k) && c && Array.isArray(c.rows))
         S.cals[k]={cd:c.cd||'DC Bavaro', src:c.src||'', upd:c.upd||0, rows:c.rows.filter(function(r){ return r && r.name; }).map(function(r){
@@ -473,7 +486,7 @@ function parsePlanner(f){
     if(!name || /^\.+$/.test(name)) continue;
     var fq=norm(row[cF]), freq=fq.indexOf('diar')===0?'Diaria':fq.indexOf('seman')===0?'Semanal':fq.indexOf('mens')===0?'Mensual':fq?'Puntual':'';
     if(!freq) continue;
-    var resp=cQ>=0?clean(row[cQ]):''; if(resp==='0') resp='';
+    var resp=cQ>=0?clean(row[cQ]):''; if(resp==='0' || norm(resp)==='tba') resp='';   /* "TBA" = sin asignar */
     var area=cA>=0?clean(row[cA]):''; if(area==='0') area='';
     rows.push({name:name, freq:freq, resp:resp, area:area, aplica:norm(row[cAp])==='x',
       days:dcols.filter(function(dc){ return +row[dc.c]===1; }).map(function(dc){ return dc.dn; })});
@@ -505,13 +518,13 @@ function importPlanner(P, file){
     var st=calStats(cal);
     out.push(mesLabel(k)+' ('+st.apl+' rutinas que aplican, '+st.n+' reuniones'+(old?'; reemplazó el que había':'')+')');
   });
-  /* Las rutinas, responsables y días por defecto se actualizan con el último mes del archivo. */
+  /* Las rutinas nuevas entran a la lista con los días del último mes del archivo. Las que ya estaban conservan
+     sus días por defecto y su responsable; solo se completa lo que esté vacío. */
   var last=ks[ks.length-1];
   P.rows.forEach(function(r){
     var c=catBy(r.name);
-    if(!c){ c=mkRoutine(r.name,r.freq,r.resp,r.area,r.aplica); S.cat.push(c); }
-    else { if(c.freq!==r.freq){ c.freq=r.freq; c.tol=TOL[r.freq]; } if(r.resp) c.resp=r.resp; if(r.area) c.area=r.area; c.aplica=r.aplica; }
-    inferPattern(c, inMonth(r.days,last));
+    if(!c){ c=mkRoutine(r.name,r.freq,r.resp,r.area,r.aplica); inferPattern(c, inMonth(r.days,last)); S.cat.push(c); }
+    else { if(!c.resp && r.resp) c.resp=r.resp; if(!c.area && r.area) c.area=r.area; }
   });
   S.calKey=last;
   return out;
