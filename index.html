@@ -215,6 +215,25 @@ details.card[open] > summary::before{content:"▾"}
 details.card > summary > span{display:flex;flex-direction:column;gap:2px}
 .rules label{display:inline-flex;gap:8px;align-items:center}
 
+/* KPI críticos */
+.kpis{min-width:980px}
+.kpis td{vertical-align:top}
+.kpis .kx{border:0;background:none;padding:0;font:inherit;font-weight:600;color:var(--ink);text-align:left;cursor:pointer;display:inline-flex;gap:8px;align-items:baseline}
+.kpis .kx::before{content:"▸";color:var(--ink-2);display:inline-block;width:10px}
+.kpis tr.kp[aria-expanded="true"] .kx::before{content:"▾"}
+.kpis tr.kd > td{background:var(--sunken);padding:10px 12px 14px 28px}
+.kpis tr.kd table{background:var(--surface);border:1px solid var(--line);border-radius:4px}
+.kpis td.desc{min-width:260px;max-width:520px;overflow-wrap:anywhere}
+.kpis td.nw{white-space:nowrap}
+.kpis td.sm{font-size:13px;max-width:260px}
+td.hm{text-align:center;padding:4px 3px}
+td.hm span{display:block;min-width:34px;border-radius:4px;padding:3px 0;font-variant-numeric:tabular-nums;font-size:13px}
+td.hm.has span{background:color-mix(in srgb,var(--series) 22%,transparent)}
+td.hm.zero span{background:color-mix(in srgb,var(--crit) 14%,transparent);color:var(--crit)}
+.klegend{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px 22px;color:var(--ink-2);font-size:13px}
+.klegend li{display:flex;gap:6px;align-items:center}
+.kedit .pill{padding:2px 4px 2px 10px}
+.kedit .pill .rm{font-size:14px;padding:0 4px}
 .notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:22px}
 .notes ul{margin:8px 0 0;padding-left:18px;color:var(--ink-2);display:flex;flex-direction:column;gap:5px;max-width:70ch}
 .notes .card{display:flex;flex-direction:column;gap:4px}
@@ -264,6 +283,7 @@ details.card > summary > span{display:flex;flex-direction:column;gap:2px}
     <button type="button" role="tab" data-view="cum">Cumplimiento del mes</button>
     <button type="button" role="tab" data-view="ten">Tendencia</button>
     <button type="button" role="tab" data-view="act">Acciones</button>
+    <button type="button" role="tab" data-view="kpi">KPI críticos</button>
     <button type="button" role="tab" data-view="plan">Calendario de reuniones</button>
   </nav>
 
@@ -281,6 +301,7 @@ details.card > summary > span{display:flex;flex-direction:column;gap:2px}
   <div class="view" id="vCum" hidden></div>
   <div class="view" id="vTen" hidden></div>
   <div class="view" id="vAct" hidden></div>
+  <div class="view" id="vKpi" hidden></div>
   <div class="view" id="vPlan" hidden></div>
 </div>
 <div id="tip" hidden></div>
@@ -360,7 +381,8 @@ function upgradeCat(v){
 }
 /* cals: un calendario de reuniones por mes ("2026-10"), con sus rutinas y los días (1–31) marcados. */
 var S = {acts:[], fileName:'', agency:'', cat:defCat(), cals:{}, calKey:null, meta:0.9, month:null, view:'cum', freq:'all', area:'all', hasta:null, showAll:false,
-  showOff:false, defOpen:false, q:'', pil:'all', est:'all', lim:100};
+  showOff:false, defOpen:false, q:'', pil:'all', est:'all', lim:100,
+  kpis:null, kf:'all', ku:'all', kopen:{}, kedOpen:false, olim:15};
 
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -387,7 +409,7 @@ function isDone(e){ return norm(e)==='completed'; }
 
 /* ---------- Persistencia (solo comodidad de este navegador) ---------- */
 function save(){
-  try{ localStorage.setItem(KEY, JSON.stringify({cat:S.cat, catV:CAT_V, cals:S.cals, calKey:S.calKey, meta:S.meta, fileName:S.fileName, agency:S.agency, month:S.month, view:S.view,
+  try{ localStorage.setItem(KEY, JSON.stringify({cat:S.cat, catV:CAT_V, cals:S.cals, calKey:S.calKey, kpis:S.kpis, kedOpen:S.kedOpen, meta:S.meta, fileName:S.fileName, agency:S.agency, month:S.month, view:S.view,
     freq:S.freq, area:S.area, hasta:S.hasta, showAll:S.showAll, showOff:S.showOff, defOpen:S.defOpen,
     acts:S.acts.map(function(a){ return [a.id,a.rt,a.dn,a.hm,a.owner,a.pos,a.pil,a.kpi,a.tool,a.desc,a.inv,a.est,a.comp,a.org]; })})); }catch(_){}
 }
@@ -410,7 +432,9 @@ function load(){
     });
     if(typeof o.meta==='number' && o.meta>0 && o.meta<=1) S.meta=o.meta;
     S.fileName=o.fileName||''; S.agency=o.agency||''; S.month=o.month||null; S.calKey=o.calKey||null;
-    if(['cum','ten','act','plan'].indexOf(o.view)>=0) S.view=o.view;
+    if(['cum','ten','act','kpi','plan'].indexOf(o.view)>=0) S.view=o.view;
+    if(Array.isArray(o.kpis) && o.kpis.length) S.kpis=o.kpis.filter(function(g){ return g && g.name && Array.isArray(g.codes); });
+    S.kedOpen=!!o.kedOpen;
     S.freq=o.freq||'all'; S.area=o.area||'all'; S.hasta=typeof o.hasta==='number'?o.hasta:null; S.showAll=!!o.showAll; S.showOff=!!o.showOff; S.defOpen=!!o.defOpen;
     S.acts=(o.acts||[]).map(function(a){ return mkAct(a[0],a[1],a[2],a[3],a[4],a[5],a[6],a[7],a[8],a[9],a[10],a[11],a[12],a[13]); });
   }catch(_){}
@@ -737,7 +761,7 @@ function render(){
   Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function(b){ b.setAttribute('aria-selected', String(b.dataset.view===S.view)); });
   var has=S.acts.length>0;
   $('fileBtn').textContent=has?'Cargar otro Excel':'Cargar Excel';
-  $('vCum').hidden=S.view!=='cum'||!has; $('vTen').hidden=S.view!=='ten'||!has; $('vAct').hidden=S.view!=='act'||!has; $('vPlan').hidden=S.view!=='plan';
+  $('vCum').hidden=S.view!=='cum'||!has; $('vTen').hidden=S.view!=='ten'||!has; $('vAct').hidden=S.view!=='act'||!has; $('vKpi').hidden=S.view!=='kpi'||!has; $('vPlan').hidden=S.view!=='plan';
   $('empty').style.display=(!has && S.view!=='plan')?'flex':'none';
   $('monthSel').hidden=!has || S.view==='ten' || S.view==='plan';
   if(has){
@@ -750,6 +774,7 @@ function render(){
   if(S.view==='cum') renderCum(ym);
   if(S.view==='ten') renderTen();
   if(S.view==='act') renderAct(ym);
+  if(S.view==='kpi') renderKpi(ym);
 }
 
 /* ---------- Cumplimiento del mes ---------- */
@@ -948,6 +973,143 @@ function actTable(list){
   return h;
 }
 
+/* ---------- KPI críticos ---------- */
+/* Cada KPI crítico agrupa los códigos con que llega en la columna KPI (el mismo indicador viene escrito de varias formas).
+   u: indicado por el equipo; si no, sugerido por su relación con los indicados (why). */
+var DEFAULT_KPIS = [
+  {name:'Total Productivity', codes:['total-productivity'], u:1},
+  {name:'SCOH', codes:['SCOH'], u:1},
+  {name:'VLC', codes:['VLC_T2','VLC_T1'], u:1},
+  {name:'OTIF', codes:['OTIF_EN_PEDIDOS_ORDENES','OTIF_HL'], u:1},
+  {name:'In Full', codes:['IN_FULL','Infull'], u:1},
+  {name:'On Time', codes:['ON_TIME','Ontime'], u:1},
+  {name:'DQI', codes:['DQI'], u:1},
+  {name:'WQI', codes:['WQI'], u:1},
+  {name:'Total QI', codes:['TQI'], u:1},
+  {name:'Diferencia de inventario', codes:['INVENTORY_DIFFERENCES','PÉRDIDAS_DE_INVENTARIO'], u:1},
+  {name:'TML', codes:['TML'], u:1},
+  {name:'Precisión de inventario', codes:['PRECISION_DE_INVENTARIO'], why:'Va de la mano con la diferencia de inventario: sin conteos precisos, la diferencia aparece tarde.'},
+  {name:'Frescura y obsolescencia', codes:['FRESCURA','EDAD_DE_PRODUCTO','OBSOLESCENCIA','STOCK_AGE_INDEX'], why:'El producto viejo termina en pérdida, devolución o baja calidad (WQI).'},
+  {name:'Devoluciones y rechazos', codes:['DEVOLUCIÓN','ROTURA_DE_BOTELLAS'], why:'Es lo que rompe el In Full y el OTIF en la entrega.'},
+  {name:'Out of stock', codes:['OutStock'], why:'Los faltantes en almacén salen como pedidos incompletos (In Full).'},
+  {name:'Precisión de picking', codes:['PRECISION_DE_PICKING'], why:'Errores de armado llegan al cliente como In Full y DQI bajos.'},
+  {name:'Productividad de picking y carga', codes:['PRODUCTIVIDAD_DE_PICKING','PRODUCTIVIDAD_DE_PICKING_CJS_HR','PRODUCTIVIDAD_PICKING','PRODUCTIVIDAD_DE_CARGA'], why:'Son los componentes de almacén de la Total Productivity.'},
+  {name:'Tiempo en mercado', codes:['TIEMPO_MERCADO','TIEMPO_INTERNO'], why:'Junto con la TML define si se llega a tiempo (On Time) y cuántas horas cuesta la ruta (VLC).'},
+  {name:'Nivel de servicio y NPS', codes:['SERVICE_LEVEL','NPS','Npsdelivery','RATEMYDELIVERY'], why:'Es el OTIF visto por el cliente.'},
+  {name:'Disponibilidad de flota', codes:['DISPONIBILIDAD_DE_FLOTA_T2','DISPONIBILIDAD','MANTENIMIENTO'], why:'Sin camiones disponibles no hay On Time, y los rescates suben el VLC.'},
+  {name:'Combustible y neumáticos', codes:['RENDIMIENTO_COMBUSTIBLE','RENDIMIENTO_DE_NEUMATICOS'], why:'Son los mayores gastos variables del VLC de flota.'},
+  {name:'Cost per case', codes:['cost-per-case'], why:'Resume en un número la productividad y el costo logístico.'},
+  {name:'Seguridad', codes:['ACTOS_INSEGUROS','CONDICIÓN_INSEGURA','LTIs','SIF'], why:'Safety es el primer pilar del DPO; actos y condiciones inseguras son el aviso antes de un LTI o SIF.'},
+  {name:'Ausentismo', codes:['AUSENTISMO','JORNADA_LABORAL'], why:'La falta de personal baja la productividad y alarga los tiempos de atención.'}
+];
+function defKpis(){ return DEFAULT_KPIS.map(function(k){ return {name:k.name, codes:k.codes.slice(), u:!!k.u, why:k.why||''}; }); }
+var KST = {good:['✓','Con seguimiento'], warn:['!','Atención'], crit:['✕','Descuidado'], none:['–','Sin acciones']};
+function kchip(s){ return '<span class="chip s-'+s+'"><i aria-hidden="true">'+KST[s][0]+'</i>'+KST[s][1]+'</span>'; }
+function kpiLabel(code){ return String(code||'').replace(/_/g,' '); }
+/* Estado al cierre del periodo: con seguimiento si tuvo acciones en el mes y la última tiene 14 días o menos;
+   atención si la última tiene hasta 30 días; descuidado si pasó más de un mes o nunca tuvo. */
+function kpiStatus(nMes, days){ if(days==null || days>30) return 'crit'; if(nMes>0 && days<=14) return 'good'; return 'warn'; }
+function computeKpis(ym){
+  var ref=Math.min(lastOfMonth(ym.y,ym.m), hasta()), ms=months(), key=mkey(ym.y,ym.m), owner={};
+  S.kpis.forEach(function(g,gi){ g.codes.forEach(function(c){ owner[norm(c)]=gi; }); });
+  var G=S.kpis.map(function(g){ return {g:g, mes:0, byM:{}, last:null, open:0, late:0, rut:{}, own:{}, list:[]}; });
+  var other={}, today=todayDn();
+  S.acts.forEach(function(a){
+    var k=norm(a.kpi), gi=owner[k], mk=mkey(a.y,a.m);
+    if(gi==null){
+      if(!k) return;
+      var o=other[k]||(other[k]={code:a.kpi, n:0, mes:0, last:null, pil:{}}); o.n++;
+      if(mk===key) o.mes++; if(a.dn<=ref && (o.last==null||a.dn>o.last)) o.last=a.dn; if(a.pil) o.pil[a.pil]=(o.pil[a.pil]||0)+1;
+      return;
+    }
+    var x=G[gi]; x.byM[mk]=(x.byM[mk]||0)+1;
+    if(!isDone(a.est)){ x.open++; if(a.comp!=null && a.comp<today) x.late++; }
+    if(a.dn>ref) return;
+    if(mk===key){ x.mes++; x.rut[a.rt]=(x.rut[a.rt]||0)+1; if(a.owner) x.own[a.owner]=(x.own[a.owner]||0)+1; }
+    if(x.last==null||a.dn>x.last) x.last=a.dn;
+    x.list.push(a);
+  });
+  /* Ritmo: acciones del mes llevadas al mes completo, contra el promedio de los 3 meses anteriores. */
+  var first=dn(ym.y,ym.m,1), frac=Math.max(1,ref-first+1)/(lastOfMonth(ym.y,ym.m)-first+1), prev=[1,2,3].map(function(n){ return shiftKey(key,-n); });
+  G.forEach(function(x){
+    x.days=x.last==null?null:ref-x.last; x.st=kpiStatus(x.mes,x.days);
+    x.avg=prev.reduce(function(s,m){ return s+(x.byM[m]||0); },0)/3;
+    x.pace=x.avg>0 ? (x.mes/frac)/x.avg : null;
+    if(x.st==='good' && x.avg>=2 && x.pace<0.5) x.st='warn', x.slow=true;
+    x.list.sort(function(a,b){ return b.dn-a.dn || (a.hm<b.hm?1:-1); }); x.list=x.list.slice(0,8);
+  });
+  var ord={crit:0,warn:1,good:2};
+  G.sort(function(a,b){ return ord[a.st]-ord[b.st] || (b.days==null?1e9:b.days)-(a.days==null?1e9:a.days) || (b.g.u?1:0)-(a.g.u?1:0); });
+  var others=Object.keys(other).map(function(k){ return other[k]; }).sort(function(a,b){ return b.n-a.n; });
+  return {ref:ref, ms:ms.filter(function(m){ return m<=key; }).slice(-6), key:key, prev:prev, frac:frac, G:G, others:others};
+}
+function fmt1(x){ return (Math.round(x*10)/10).toString().replace('.',','); }
+function top2(o){ return Object.keys(o).sort(function(a,b){ return o[b]-o[a]; }).slice(0,2).map(function(k){ return k+' ('+o[k]+')'; }).join(', '); }
+function renderKpi(ym){
+  var K=computeKpis(ym), mesTxt=MESES[ym.m-1]+' de '+ym.y, cnt={good:0,warn:0,crit:0}, sinMes=0;
+  K.G.forEach(function(x){ cnt[x.st]++; if(!x.mes) sinMes++; });
+  var v='<div class="sechead"><div><h2>KPI críticos · '+esc(mesTxt)+'</h2><p class="sub">Qué indicadores críticos están recibiendo acciones y cuáles se están quedando sin seguimiento. Calculado al '+esc(dLong(K.ref))+'.</p></div>'+
+    '</div>';
+  v+='<ul class="klegend"><li>'+kchip('good')+' acciones en el mes y la última hace 14 días o menos</li><li>'+kchip('warn')+' la última hace 15 a 30 días, o el mes va a menos de la mitad de su ritmo normal</li><li>'+kchip('crit')+' más de un mes sin acciones</li></ul>';
+  v+='<section class="tiles">'+tile('KPI críticos', K.G.length, S.kpis.filter(function(g){ return g.u; }).length+' indicados por el equipo')+
+    tile('Descuidados', cnt.crit, 'Más de 30 días sin acciones', cnt.crit?'crit':'')+tile('Atención', cnt.warn, 'Última acción hace 15 a 30 días o ritmo bajo')+
+    tile('Con seguimiento', cnt.good)+tile('Sin acciones en el mes', sinMes, 'de '+K.G.length+' críticos', sinMes?'crit':'')+'</section>';
+  var fl=[['all','Todos'],['crit','Descuidados'],['warn','Atención'],['good','Con seguimiento']];
+  v+='<div class="ctrls"><div class="seg" role="group" aria-label="Estado">'+fl.map(function(f){ return '<button type="button" data-kf="'+f[0]+'" aria-pressed="'+(S.kf===f[0])+'">'+f[1]+(f[0]!=='all'?' ('+cnt[f[0]]+')':'')+'</button>'; }).join('')+'</div>'+
+    '<div class="seg" role="group" aria-label="Origen"><button type="button" data-ku="all" aria-pressed="'+(S.ku==='all')+'">Todos</button><button type="button" data-ku="u" aria-pressed="'+(S.ku==='u')+'">Indicados por el equipo</button><button type="button" data-ku="s" aria-pressed="'+(S.ku==='s')+'">Sugeridos</button></div></div>';
+  var rows=K.G.filter(function(x){ return (S.kf==='all'||x.st===S.kf) && (S.ku==='all'||(S.ku==='u')===!!x.g.u); });
+  var t='<div class="scroll"><table class="kpis"><thead><tr><th>KPI</th><th>Estado</th><th class="r">En el mes</th>'+K.ms.map(function(m){ var p=kparts(m); return '<th class="c">'+MES3[p.m-1]+'</th>'; }).join('')+
+    '<th>Ritmo del mes<small>contra los 3 meses anteriores</small></th><th>Última acción</th><th class="r">Pendientes</th><th>Quién y en qué rutina</th></tr></thead><tbody>';
+  rows.forEach(function(x){
+    var open=!!S.kopen[x.g.name];
+    t+='<tr class="kp" aria-expanded="'+open+'"><td><button type="button" class="kx" data-kopen="'+esc(x.g.name)+'">'+esc(x.g.name)+'</button><br><span class="extra">'+(x.g.u?'Indicado por el equipo':'Sugerido')+' · '+esc(x.g.codes.map(kpiLabel).join(', '))+'</span></td>'+
+      '<td>'+kchip(x.st)+'</td><td class="r"><strong>'+x.mes+'</strong></td>'+
+      K.ms.map(function(m){ var n=x.byM[m]||0; return '<td class="hm '+(n?'has':'zero')+'" data-tip="'+esc(x.g.name+' · '+mesLabel(m)+'\n'+n+' acciones')+'"><span>'+n+'</span></td>'; }).join('')+
+      '<td class="nw" data-tip="'+esc(x.g.name+'\nPromedio de '+K.prev.map(mesLabel).reverse().join(', ')+': '+fmt1(x.avg)+' acciones por mes\n'+mesLabel(K.key)+': '+x.mes+' acciones'+(K.frac<1?' en '+Math.round(K.frac*100)+' % del mes (proyección: '+fmt1(x.mes/K.frac)+')':''))+'">'+
+        (x.pace==null?'<span class="extra">Sin historial</span>':'<span class="tag s-'+(x.pace>=0.8?'good':x.pace>=0.5?'warn':'crit')+'">'+(x.pace>=1?'▲':'▼')+' '+Math.round(x.pace*100)+' %</span><br><span class="extra">prom. '+fmt1(x.avg)+'/mes</span>')+'</td>'+
+      '<td class="nw">'+(x.last==null?'<span class="tag s-crit">Nunca</span>':dLabel(x.last)+' '+parts(x.last).y+'<br><span class="tag s-'+x.st+'">hace '+x.days+' d</span>')+'</td>'+
+      '<td class="r">'+(x.open?x.open+(x.late?'<br><span class="tag s-crit">'+x.late+' vencidas</span>':''):'')+'</td>'+
+      '<td class="sm">'+(x.mes?esc(top2(x.own))+'<br><span class="extra">'+esc(top2(x.rut))+'</span>':'<span class="extra">Nadie este mes</span>')+'</td></tr>';
+    if(open){
+      t+='<tr class="kd"><td colspan="'+(7+K.ms.length)+'">'+(x.g.why?'<p class="sub" style="margin:0 0 8px">Por qué seguirlo: '+esc(x.g.why)+'</p>':'')+
+        (x.list.length?'<table><thead><tr><th>Fecha</th><th>Rutina</th><th>Dueño</th><th>Descripción</th><th>Estatus</th></tr></thead><tbody>'+x.list.map(function(a){
+          return '<tr><td class="nw">'+dLabel(a.dn)+' '+a.y+'</td><td>'+esc(a.rt)+'</td><td>'+esc(a.owner)+'</td><td class="desc">'+esc(a.desc)+'</td><td class="nw">'+esc(estLabel(a.est))+'</td></tr>'; }).join('')+'</tbody></table>'
+          :'<p class="sub">No hay acciones con estos códigos en el archivo.</p>')+'</td></tr>';
+    }
+  });
+  t+='</tbody></table></div>';
+  v+='<section class="card">'+(rows.length?t:'<p class="sub">Ningún KPI con este filtro.</p>')+'</section>';
+
+  /* Otros KPI */
+  var oth=K.others;
+  v+='<div class="sechead"><div><h2>Otros KPI con acciones</h2><p class="sub">No están en la lista de críticos. Si alguno debe vigilarse, agrégalo.</p></div></div>';
+  v+='<section class="card">'+(oth.length?'<div class="scroll"><table><thead><tr><th>KPI</th><th>Pilar</th><th class="r">En el mes</th><th class="r">Total</th><th>Última acción</th><th></th></tr></thead><tbody>'+
+    oth.slice(0,S.olim).map(function(o){ var d=o.last==null?null:K.ref-o.last;
+      return '<tr><td>'+esc(kpiLabel(o.code))+'</td><td class="extra">'+esc(top2(o.pil))+'</td><td class="r">'+(o.mes||'')+'</td><td class="r">'+o.n+'</td><td class="nw">'+(o.last==null?'—':dLabel(o.last)+' '+parts(o.last).y+' <span class="extra">('+d+' d)</span>')+'</td>'+
+        '<td class="r"><button type="button" data-kadd="'+esc(o.code)+'">Agregar a críticos</button></td></tr>'; }).join('')+'</tbody></table></div>'+
+    (oth.length>S.olim?'<div style="margin-top:10px"><button type="button" data-act="moreKpi">Ver todos ('+oth.length+')</button></div>':'')
+    :'<p class="sub">Todos los KPI del archivo están en la lista de críticos.</p>')+'</section>';
+
+  /* Editar la lista */
+  var codes={}; S.acts.forEach(function(a){ if(a.kpi) codes[norm(a.kpi)]=a.kpi; });
+  var ed='<div class="scroll" style="margin-top:12px"><table class="ptable kedit"><thead><tr><th style="min-width:200px">KPI crítico</th><th>Códigos en la columna KPI</th><th>Origen</th><th><span class="vh">Quitar</span></th></tr></thead><tbody>'+
+    S.kpis.map(function(g,i){ return '<tr><td><input type="text" data-kname="'+i+'" value="'+esc(g.name)+'" aria-label="Nombre del KPI"></td><td><div class="pills">'+
+      g.codes.map(function(c,j){ return '<span class="pill">'+esc(kpiLabel(c))+'<button type="button" class="rm" data-kcrm="'+i+'|'+j+'" aria-label="Quitar '+esc(c)+'">×</button></span>'; }).join('')+
+      '<input type="text" list="kcodes" data-kcadd="'+i+'" placeholder="Agregar código…" aria-label="Agregar código a '+esc(g.name)+'" style="width:170px"></div></td>'+
+      '<td class="extra">'+(g.u?'Equipo':'Sugerido')+'</td><td><button type="button" class="rm" data-krm="'+i+'" aria-label="Quitar '+esc(g.name)+'">×</button></td></tr>'; }).join('')+'</tbody></table></div>'+
+    '<datalist id="kcodes">'+Object.keys(codes).sort().map(function(k){ return '<option value="'+esc(codes[k])+'">'; }).join('')+'</datalist>'+
+    '<div class="ctrls" style="margin-top:12px"><label for="knew">Nuevo KPI crítico</label><input type="text" id="knew" placeholder="Nombre" style="min-width:200px"><button type="button" data-act="kNew">Agregar</button>'+
+    '<button type="button" class="quiet" data-act="kReset">Restablecer la lista sugerida</button></div>';
+  v+='<details class="card" id="kdefs"'+(S.kedOpen?' open':'')+'><summary><span><h2>Editar la lista de KPI críticos</h2><span class="sub">Cada KPI junta los códigos con que llega en la columna KPI del archivo de acciones.</span></span></summary>'+ed+'</details>';
+  $('vKpi').innerHTML=v;
+}
+function kpiOf(code){ var k=norm(code); for(var i=0;i<S.kpis.length;i++) if(S.kpis[i].codes.some(function(c){ return norm(c)===k; })) return S.kpis[i]; return null; }
+function addKpiCode(gi, code){
+  code=clean(code); if(!code) return;
+  var o=kpiOf(code); if(o){ showMsg('El código "'+code+'" ya está en "'+o.name+'".'); return; }
+  showMsg(''); S.kpis[gi].codes.push(code); save(); render();
+}
+
 /* ---------- Calendario de reuniones ---------- */
 function calKey(){ if(!S.calKey){ var t=parts(todayDn()); S.calKey=S.month||mkey(t.y,t.m); } return S.calKey; }
 function renderPlan(){
@@ -1086,6 +1248,12 @@ document.addEventListener('click', function(e){
   if(t.dataset.wd){ var w=t.dataset.wd.split('|'), rt=S.cat[+w[0]], j=+w[1], wx=rt.wds.indexOf(j); if(wx>=0) rt.wds.splice(wx,1); else { rt.wds.push(j); rt.wds.sort(numSort); } save(); render(); return; }
   if(t.dataset.rm){ var cr=S.cat[+t.dataset.rm]; if(confirm('¿Quitar la rutina "'+cr.name+'" de la lista? Los calendarios guardados no cambian.')){ S.cat.splice(+t.dataset.rm,1); save(); render(); } return; }
   if(t.dataset.addname!=null){ addRoutine(t.dataset.addname); return; }
+  if(t.dataset.kf){ S.kf=t.dataset.kf; render(); return; }
+  if(t.dataset.ku){ S.ku=t.dataset.ku; render(); return; }
+  if(t.dataset.kopen!=null){ var kn=t.dataset.kopen; if(S.kopen[kn]) delete S.kopen[kn]; else S.kopen[kn]=1; render(); refocus('[data-kopen="'+CSS.escape(kn)+'"]'); return; }
+  if(t.dataset.kadd!=null){ S.kpis.push({name:kpiLabel(t.dataset.kadd).toLowerCase().replace(/^./,function(c){ return c.toUpperCase(); }), codes:[t.dataset.kadd], u:true, why:''}); save(); render(); return; }
+  if(t.dataset.kcrm){ var kc=t.dataset.kcrm.split('|'); S.kpis[+kc[0]].codes.splice(+kc[1],1); save(); render(); return; }
+  if(t.dataset.krm){ var kg=S.kpis[+t.dataset.krm]; if(confirm('¿Quitar "'+kg.name+'" de los KPI críticos?')){ S.kpis.splice(+t.dataset.krm,1); save(); render(); } return; }
   var k=calKey(), ym=kparts(k), nk=shiftKey(k,1), pk=shiftKey(k,-1);
   switch(t.dataset.act||t.id){
     case 'calNew': S.cals[k]=newCal(ym.y,ym.m); S.cals[k].src='Creado aquí con los días por defecto'; save(); render(); break;
@@ -1107,6 +1275,9 @@ document.addEventListener('click', function(e){
     case 'resetPlan': if(confirm('¿Volver a la lista de rutinas y días por defecto de REFERENCIA? Los calendarios guardados no cambian.')){ S.cat=defCat(); save(); render(); } break;
     case 'addRt': addRoutine($('newRt').value); break;
     case 'moreActs': S.lim+=200; render(); break;
+    case 'moreKpi': S.olim=1e9; render(); break;
+    case 'kNew': var nn=clean($('knew').value); if(nn){ S.kpis.push({name:nn, codes:[], u:true, why:''}); S.kedOpen=true; save(); render(); } break;
+    case 'kReset': if(confirm('¿Volver a la lista sugerida de KPI críticos? Se pierden los cambios hechos a la lista.')){ S.kpis=defKpis(); save(); render(); } break;
   }
 });
 function guessFreq(name){ return /mensual/i.test(name)?'Mensual':/semanal/i.test(name)?'Semanal':/diari/i.test(name)?'Diaria':'Semanal'; }
@@ -1139,6 +1310,8 @@ document.addEventListener('change', function(e){
   if(t.id==='calMonth'){ if(/^\d{4}-\d{2}$/.test(t.value)){ S.calKey=t.value; save(); render(); } return; }
   if(t.id==='calCd' && cal){ cal.cd=clean(t.value)||cal.cd; save(); render(); return; }
   if(t.id==='fileIn'){ readFiles(t.files); t.value=''; return; }
+  if(t.dataset.kname!=null){ var kv=clean(t.value); if(kv){ var kg2=S.kpis[+t.dataset.kname]; if(S.kopen[kg2.name]){ delete S.kopen[kg2.name]; S.kopen[kv]=1; } kg2.name=kv; save(); } render(); return; }
+  if(t.dataset.kcadd!=null){ addKpiCode(+t.dataset.kcadd, t.value); return; }
   if(t.dataset.calap!=null && cal){ cal.rows[+t.dataset.calap].aplica=t.checked; cal.upd=Date.now(); save(); render(); return; }
   if(t.dataset.f && t.dataset.i!=null){
     var rt=S.cat[+t.dataset.i], f=t.dataset.f;
@@ -1152,7 +1325,7 @@ document.addEventListener('change', function(e){
     save(); render();
   }
 });
-document.addEventListener('toggle', function(e){ if(e.target.id==='defs'){ S.defOpen=e.target.open; save(); } }, true);
+document.addEventListener('toggle', function(e){ if(e.target.id==='defs'){ S.defOpen=e.target.open; save(); } if(e.target.id==='kdefs'){ S.kedOpen=e.target.open; save(); } }, true);
 var qT=null;
 document.addEventListener('input', function(e){
   if(e.target.id!=='actQ') return;
@@ -1174,6 +1347,6 @@ document.addEventListener('mousemove', function(e){ var el=e.target.closest&&e.t
 document.addEventListener('focusin', function(e){ var el=e.target.closest&&e.target.closest('[data-tip]'); if(el){ var r=el.getBoundingClientRect(); showTip(el,r.left,r.bottom-8); } else tip.hidden=true; });
 document.addEventListener('scroll', function(){ tip.hidden=true; }, true);
 
-load(); render();
+load(); if(!S.kpis) S.kpis=defKpis(); render();
 })();
 </script>
