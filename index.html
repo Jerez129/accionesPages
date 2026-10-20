@@ -635,13 +635,17 @@ function inScope(rt){ return (S.freq==='all'||rt.freq===S.freq) && (S.area==='al
 function roll(){ return {opp:0, ok:0, pend:0, cnt:0, p:null}; }
 function fin(R){ R.p=R.opp>0?R.ok/R.opp:null; return R; }
 function add(R,c){ if(!c.plan) return; if(c.st==='pend'){ R.pend++; return; } R.opp++; R.cnt+=c.cnt; if(c.st==='ok') R.ok++; }
-/* Una reunión planificada se cumple si se subió al menos una acción de esa rutina el día de la reunión
-   o en los días de tolerancia siguientes (diaria +1 día; semanal y mensual +5 días). */
+/* Plazo de una reunión: las acciones de esa rutina cuentan desde el día de la reunión durante su plazo
+   (diaria 2 días; semanal 6 días, de lunes a sábado). La mensual acepta acciones de cualquier día de su mes. */
+function windowOf(rt,d){ if(rt.freq==='Mensual'){ var p=parts(d); return [dn(p.y,p.m,1), lastOfMonth(p.y,p.m)]; } return [d, d+(+rt.tol||0)]; }
+function windowTxt(rt,d){ var w=windowOf(rt,d); return rt.freq==='Mensual' ? 'todo '+MESES[parts(d).m-1] : w[0]===w[1] ? 'solo ese día' : 'del '+dLabel(w[0])+' al '+dLabel(w[1]); }
+/* Cumplida en cuanto hay una acción en el plazo; sin acciones, queda por medir hasta que el plazo termina. */
 function cellFor(rt,d,H,ix){
   var m=ix[rt.key]||{}, raw=m[d]||0, plan=rt.aplica && !!rt.set[parts(d).d], cnt=0, st='none';
   if(plan){
-    for(var k=0;k<=(+rt.tol||0);k++) cnt+=m[d+k]||0;
-    st = d>H ? 'pend' : cnt>0 ? 'ok' : 'fail';
+    var w=windowOf(rt,d), e=Math.min(w[1],H);
+    for(var k=w[0];k<=e;k++) cnt+=m[k]||0;
+    st = cnt>0 ? 'ok' : w[1]<=H ? 'fail' : 'pend';
   }
   return {d:d, raw:raw, plan:plan, cnt:cnt, st:st};
 }
@@ -753,7 +757,7 @@ function renderCum(ym){
   R=computeMonth(ym.y, ym.m);
   var T=R.T, mesTxt=MESES[R.m-1]+' de '+R.y, H=R.H, v='';
   var shown=R.rows.filter(function(r){ return S.showAll || r.planned || r.raw>0; });
-  v+='<div class="sechead"><div><h2>Cumplimiento de rutinas · '+esc(mesTxt)+'</h2><p class="sub">Una reunión cumple cuando se subieron acciones de esa rutina en su fecha o en los días de tolerancia.</p></div><div class="legend">'+legend()+'</div></div>';
+  v+='<div class="sechead"><div><h2>Cumplimiento de rutinas · '+esc(mesTxt)+'</h2><p class="sub">Una reunión cumple cuando se subieron acciones de esa rutina dentro de su plazo: diaria 2 días, semanal 6 días, mensual todo el mes.</p></div><div class="legend">'+legend()+'</div></div>';
   v+='<div class="ctrls">'+scopeCtrls()+'<label for="hastaIn" class="sub">Medir hasta <input type="date" id="hastaIn" value="'+isoD(H)+'"></label>'+
     (S.hasta!=null?'<button type="button" class="quiet" id="hastaAuto">Usar el último día con datos</button>':'')+
     '<button type="button" id="dlBtn">Descargar detalle en Excel</button></div>';
@@ -785,7 +789,7 @@ function renderCum(ym){
             var p=parts(x.d), cls='dc'+(x.st==='ok'?' ok':x.st==='fail'?' fail':x.st==='pend'?' pend':''), txt;
             if(x.st==='ok') txt=x.cnt; else if(x.st==='fail') txt='✕'; else if(x.st==='pend') txt=x.raw||'·'; else txt=x.raw||'';
             var tip=r.rt.name+'\n'+dLong(x.d)+'\n'+(x.plan?(x.st==='pend'?'Planificada · todavía por medir':x.st==='ok'?'Cumplida':'Planificada sin acciones'):'Sin reunión planificada')+
-              '\nAcciones ese día: '+x.raw+(x.plan&&+r.rt.tol?'\nAcciones contadas (+'+r.rt.tol+' d): '+x.cnt:'')+'\nToca para '+(x.plan?'quitar':'planificar')+' la reunión';
+              '\nAcciones ese día: '+x.raw+(x.plan?'\nPlazo: '+windowTxt(r.rt,x.d)+' · acciones que cuentan: '+x.cnt:'')+'\nToca para '+(x.plan?'quitar':'planificar')+' la reunión';
             return '<td class="'+(p.wd>=5?'we':'')+(x.d>H?' fut':'')+'"><button type="button" class="'+cls+'" data-tg="'+esc(r.key)+'|'+x.d+'" data-tip="'+esc(tip)+'" aria-label="'+esc(tip.replace(/\n/g,'. '))+'">'+txt+'</button></td>';
           }).join('')+'</tr>';
       });
@@ -813,7 +817,8 @@ function renderCum(ym){
   var outK=Object.keys(R.out).sort(function(a,b){ return R.out[b]-R.out[a]; });
   v+='<section class="notes"><div class="card"><span class="lbl">Cómo se calcula</span><ul>'+
     '<li>Las reuniones salen del calendario de reuniones del mes (las rutinas que aplican y sus días marcados). Si el mes no tiene calendario, se usan los días por defecto de cada rutina (diarias '+esc(patternTxt(S.cat.filter(function(r){ return r.freq==='Diaria'&&r.aplica; })[0]||mkRoutine('','Diaria')))+'). Los calendarios se guardan en este navegador y se pueden descargar en Excel.</li>'+
-    '<li>Una reunión se cumple si hay al menos una acción de esa rutina, por la "Fecha creación", el mismo día o dentro de la tolerancia: diaria +1 día, semanal y mensual +5 días. Es la misma regla del Excel REFERENCIA.</li>'+
+    '<li>Una reunión se cumple si hay al menos una acción de esa rutina, por la "Fecha creación", dentro de su plazo: la diaria, ese día y el siguiente; la semanal, 6 días desde la reunión (si se planifica el lunes, vale hasta el sábado); la mensual, cualquier día de ese mes, sin importar el día planificado.</li>'+
+    '<li>Sin acciones, la reunión queda "por medir" hasta que termina su plazo; después cuenta como no cumplida.</li>'+
     '<li>Cumplimiento = reuniones con acciones ÷ reuniones planificadas hasta la fecha de medición. Las reuniones posteriores se ven punteadas y no cuentan.</li>'+
     '<li>La meta es '+Math.round(S.meta*100)+' %. Se cambia en la pestaña Calendario de reuniones, en "Rutinas y días por defecto".</li></ul></div>'+
     '<div class="card"><span class="lbl">Acciones fuera del plan</span>'+(outK.length?'<div class="scroll" style="margin-top:6px"><table><thead><tr><th>Rutina</th><th class="r">Acciones</th></tr></thead><tbody>'+
@@ -825,9 +830,9 @@ function renderCum(ym){
 
 function download(){
   if(!R) return;
-  var H=R.H, head=['Rutina','Frecuencia','Responsable','Área','Fecha','Día','Semana','Estado','Acciones ese día','Acciones contadas','Tolerancia (días)'], rows=[head];
+  var H=R.H, head=['Rutina','Frecuencia','Responsable','Área','Fecha','Día','Semana','Estado','Acciones ese día','Acciones contadas','Plazo para subir acciones'], rows=[head];
   R.rows.forEach(function(r){ r.cells.forEach(function(c){ if(!c.plan) return; var p=parts(c.d);
-    rows.push([r.rt.name, r.rt.freq, r.rt.resp, r.rt.area, new Date(p.y,p.m-1,p.d), WDN[p.wd], isoWeek(c.d), c.st==='ok'?'Cumplida':c.st==='fail'?'Sin acciones':'Por medir', c.raw, c.st==='pend'?'':c.cnt, +r.rt.tol]); }); });
+    rows.push([r.rt.name, r.rt.freq, r.rt.resp, r.rt.area, new Date(p.y,p.m-1,p.d), WDN[p.wd], isoWeek(c.d), c.st==='ok'?'Cumplida':c.st==='fail'?'Sin acciones':'Por medir', c.raw, c.cnt, windowTxt(r.rt,c.d)]); }); });
   var res=[['Rutina','Frecuencia','Responsable','Área','Planificadas medidas','Con acciones','Por medir','Cumplimiento']];
   R.rows.filter(function(r){ return r.planned; }).forEach(function(r){ res.push([r.rt.name,r.rt.freq,r.rt.resp,r.rt.area,r.roll.opp,r.roll.ok,r.roll.pend,r.roll.p==null?'':Math.round(r.roll.p*1000)/1000]); });
   res.push(['Total','','','',R.T.opp,R.T.ok,R.T.pend,R.T.p==null?'':Math.round(R.T.p*1000)/1000]);
@@ -999,7 +1004,7 @@ function renderPlan(){
   /* Rutinas y días por defecto */
   var known={}; S.cat.forEach(function(rt){ known[rk(rt)]=1; });
   var extra={}; S.acts.forEach(function(a){ if(!known[a.rk]) extra[a.rt]=(extra[a.rt]||0)+1; });
-  var t='<div class="scroll" style="margin-top:12px"><table class="ptable"><thead><tr><th>Aplica</th><th style="min-width:250px">Rutina</th><th>Frecuencia</th><th style="min-width:150px">Responsable</th><th style="min-width:110px">Área</th><th>Días por defecto</th><th>Tolerancia<small>días después</small></th><th class="r">Acciones<small>en el archivo</small></th><th><span class="vh">Quitar</span></th></tr></thead><tbody>';
+  var t='<div class="scroll" style="margin-top:12px"><table class="ptable"><thead><tr><th>Aplica</th><th style="min-width:250px">Rutina</th><th>Frecuencia</th><th style="min-width:150px">Responsable</th><th style="min-width:110px">Área</th><th>Días por defecto</th><th>Plazo<small>días para subir acciones</small></th><th class="r">Acciones<small>en el archivo</small></th><th><span class="vh">Quitar</span></th></tr></thead><tbody>';
   var cnt={}; S.acts.forEach(function(a){ cnt[a.rk]=(cnt[a.rk]||0)+1; });
   FREQS.forEach(function(f){
     S.cat.forEach(function(rt,i){
@@ -1014,7 +1019,7 @@ function renderPlan(){
         '<td><select data-f="freq" data-i="'+i+'" aria-label="Frecuencia">'+FREQS.map(function(x){ return '<option'+(x===f?' selected':'')+'>'+x+'</option>'; }).join('')+'</select></td>'+
         '<td><input type="text" data-f="resp" data-i="'+i+'" value="'+esc(rt.resp)+'" aria-label="Responsable"></td>'+
         '<td><input type="text" data-f="area" data-i="'+i+'" value="'+esc(rt.area)+'" aria-label="Área"></td>'+
-        '<td>'+d+'</td><td><input type="number" min="0" max="15" data-f="tol" data-i="'+i+'" value="'+rt.tol+'" aria-label="Tolerancia"></td>'+
+        '<td>'+d+'</td><td>'+(f==='Mensual'?'<span class="extra">Todo el mes</span>':'<input type="number" min="1" max="16" data-f="tol" data-i="'+i+'" value="'+((+rt.tol||0)+1)+'" aria-label="Plazo en días de '+esc(rt.name)+'" title="Contando el día de la reunión">')+'</td>'+
         '<td class="r">'+(cnt[rk(rt)]||'')+'</td><td><button type="button" class="rm" data-rm="'+i+'" aria-label="Quitar '+esc(rt.name)+'">×</button></td></tr>';
     });
   });
@@ -1024,7 +1029,7 @@ function renderPlan(){
     '<datalist id="rtList">'+ek.map(function(k){ return '<option value="'+esc(k)+'">'; }).join('')+'</datalist><button type="button" id="addRt">Agregar</button></div>';
   if(ek.length) t+='<div style="margin-top:16px"><span class="lbl">Rutinas del archivo de acciones que no están en la lista</span><p class="sub" style="margin-top:4px">Sus acciones no cuentan para el cumplimiento. Agrégalas si deben medirse.</p><div class="scroll" style="margin-top:8px"><table><thead><tr><th>Rutina</th><th class="r">Acciones</th><th></th></tr></thead><tbody>'+
     ek.map(function(k){ return '<tr><td>'+esc(k)+'</td><td class="r">'+extra[k]+'</td><td class="r"><button type="button" data-addname="'+esc(k)+'">Agregar</button></td></tr>'; }).join('')+'</tbody></table></div></div>';
-  v+='<details class="card" id="defs"'+(S.defOpen?' open':'')+'><summary><span><h2>Rutinas y días por defecto</h2><span class="sub">Se usan al crear un calendario nuevo y en los meses sin calendario. Responsable, área y tolerancia valen para todos los meses.</span></span></summary>'+
+  v+='<details class="card" id="defs"'+(S.defOpen?' open':'')+'><summary><span><h2>Rutinas y días por defecto</h2><span class="sub">Se usan al crear un calendario nuevo y en los meses sin calendario. Responsable, área y plazo valen para todos los meses.</span></span></summary>'+
     '<div class="rules" style="margin-top:12px"><label for="metaIn">Meta de cumplimiento <input type="number" id="metaIn" min="1" max="100" step="1" value="'+Math.round(S.meta*100)+'"> %</label>'+
     '<button type="button" class="quiet" id="resetPlan">Restablecer las rutinas de REFERENCIA</button></div>'+t+'</details>';
   $('vPlan').innerHTML=v;
@@ -1142,7 +1147,7 @@ document.addEventListener('change', function(e){
     else if(f==='freq'){ rt.freq=t.value; rt.tol=TOL[rt.freq]; }
     else if(f==='wd') rt.wd=+t.value;
     else if(f==='dom'){ var v=Math.round(+t.value); if(v>=1&&v<=31) rt.dom=v; }
-    else if(f==='tol'){ var tl=Math.round(+t.value); if(tl>=0&&tl<=15) rt.tol=tl; }
+    else if(f==='tol'){ var tl=Math.round(+t.value); if(tl>=1&&tl<=16) rt.tol=tl-1; }   /* el plazo cuenta el día de la reunión */
     else rt[f]=clean(t.value);
     save(); render();
   }
