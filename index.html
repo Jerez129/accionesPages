@@ -1041,7 +1041,7 @@ function computeKpis(ym){
   var ord={crit:0,warn:1,good:2};
   G.sort(function(a,b){ return ord[a.st]-ord[b.st] || (b.days==null?1e9:b.days)-(a.days==null?1e9:a.days) || (b.g.u?1:0)-(a.g.u?1:0); });
   var others=Object.keys(other).map(function(k){ return other[k]; }).sort(function(a,b){ return b.n-a.n; });
-  return {ref:ref, ms:ms.filter(function(m){ return m<=key; }).slice(-6), key:key, prev:prev, frac:frac, G:G, others:others};
+  return {ref:ref, ms:ms.filter(function(m){ return m<=key && m.slice(0,4)===key.slice(0,4); }), key:key, prev:prev, frac:frac, G:G, others:others};
 }
 function fmt1(x){ return (Math.round(x*10)/10).toString().replace('.',','); }
 function top2(o){ return Object.keys(o).sort(function(a,b){ return o[b]-o[a]; }).slice(0,2).map(function(k){ return k+' ('+o[k]+')'; }).join(', '); }
@@ -1058,20 +1058,21 @@ function renderKpi(ym){
   v+='<div class="ctrls"><div class="seg" role="group" aria-label="Estado">'+fl.map(function(f){ return '<button type="button" data-kf="'+f[0]+'" aria-pressed="'+(S.kf===f[0])+'">'+f[1]+(f[0]!=='all'?' ('+cnt[f[0]]+')':'')+'</button>'; }).join('')+'</div>'+
     '<div class="seg" role="group" aria-label="Origen"><button type="button" data-ku="all" aria-pressed="'+(S.ku==='all')+'">Todos</button><button type="button" data-ku="u" aria-pressed="'+(S.ku==='u')+'">Indicados por el equipo</button><button type="button" data-ku="s" aria-pressed="'+(S.ku==='s')+'">Sugeridos</button></div></div>';
   var rows=K.G.filter(function(x){ return (S.kf==='all'||x.st===S.kf) && (S.ku==='all'||(S.ku==='u')===!!x.g.u); });
-  var t='<div class="scroll"><table class="kpis"><thead><tr><th>KPI</th><th>Estado</th><th class="r">En el mes</th>'+K.ms.map(function(m){ var p=kparts(m); return '<th class="c">'+MES3[p.m-1]+'</th>'; }).join('')+
+  var t='<div class="scroll"><table class="kpis"><thead><tr><th>KPI</th><th>Estado</th><th class="r">En el mes</th>'+K.ms.map(function(m){ var p=kparts(m); return '<th class="c">'+MES3[p.m-1]+'</th>'; }).join('')+'<th class="r">Total<small>'+esc(K.key.slice(0,4))+'</small></th>'+
     '<th>Ritmo del mes<small>contra los 3 meses anteriores</small></th><th>Última acción</th><th class="r">Pendientes</th><th>Quién y en qué rutina</th></tr></thead><tbody>';
   rows.forEach(function(x){
-    var open=!!S.kopen[x.g.name];
+    var open=!!S.kopen[x.g.name], tot=K.ms.reduce(function(s2,m){ return s2+(x.byM[m]||0); },0);
+    var nota=x.st==='good' ? '' : x.last==null ? 'Sin acciones en el archivo' : (x.slow ? 'Va al '+Math.round(x.pace*100)+' % de su ritmo normal' : 'Sin acciones desde el '+dLabel(x.last));
     t+='<tr class="kp" aria-expanded="'+open+'"><td><button type="button" class="kx" data-kopen="'+esc(x.g.name)+'">'+esc(x.g.name)+'</button><br><span class="extra">'+(x.g.u?'Indicado por el equipo':'Sugerido')+' · '+esc(x.g.codes.map(kpiLabel).join(', '))+'</span></td>'+
-      '<td>'+kchip(x.st)+'</td><td class="r"><strong>'+x.mes+'</strong></td>'+
-      K.ms.map(function(m){ var n=x.byM[m]||0; return '<td class="hm '+(n?'has':'zero')+'" data-tip="'+esc(x.g.name+' · '+mesLabel(m)+'\n'+n+' acciones')+'"><span>'+n+'</span></td>'; }).join('')+
+      '<td>'+kchip(x.st)+(nota?'<br><span class="extra">'+esc(nota)+'</span>':'')+'</td><td class="r"><strong>'+x.mes+'</strong></td>'+
+      K.ms.map(function(m){ var n=x.byM[m]||0; return '<td class="hm '+(n?'has':'zero')+'" data-tip="'+esc(x.g.name+' · '+mesLabel(m)+'\n'+n+' acciones')+'"><span>'+n+'</span></td>'; }).join('')+'<td class="r"><strong>'+tot+'</strong></td>'+
       '<td class="nw" data-tip="'+esc(x.g.name+'\nPromedio de '+K.prev.map(mesLabel).reverse().join(', ')+': '+fmt1(x.avg)+' acciones por mes\n'+mesLabel(K.key)+': '+x.mes+' acciones'+(K.frac<1?' en '+Math.round(K.frac*100)+' % del mes (proyección: '+fmt1(x.mes/K.frac)+')':''))+'">'+
         (x.pace==null?'<span class="extra">Sin historial</span>':'<span class="tag s-'+(x.pace>=0.8?'good':x.pace>=0.5?'warn':'crit')+'">'+(x.pace>=1?'▲':'▼')+' '+Math.round(x.pace*100)+' %</span><br><span class="extra">prom. '+fmt1(x.avg)+'/mes</span>')+'</td>'+
       '<td class="nw">'+(x.last==null?'<span class="tag s-crit">Nunca</span>':dLabel(x.last)+' '+parts(x.last).y+'<br><span class="tag s-'+x.st+'">hace '+x.days+' d</span>')+'</td>'+
       '<td class="r">'+(x.open?x.open+(x.late?'<br><span class="tag s-crit">'+x.late+' vencidas</span>':''):'')+'</td>'+
       '<td class="sm">'+(x.mes?esc(top2(x.own))+'<br><span class="extra">'+esc(top2(x.rut))+'</span>':'<span class="extra">Nadie este mes</span>')+'</td></tr>';
     if(open){
-      t+='<tr class="kd"><td colspan="'+(7+K.ms.length)+'">'+(x.g.why?'<p class="sub" style="margin:0 0 8px">Por qué seguirlo: '+esc(x.g.why)+'</p>':'')+
+      t+='<tr class="kd"><td colspan="'+(8+K.ms.length)+'">'+(x.g.why?'<p class="sub" style="margin:0 0 8px">Por qué seguirlo: '+esc(x.g.why)+'</p>':'')+
         (x.list.length?'<table><thead><tr><th>Fecha</th><th>Rutina</th><th>Dueño</th><th>Descripción</th><th>Estatus</th></tr></thead><tbody>'+x.list.map(function(a){
           return '<tr><td class="nw">'+dLabel(a.dn)+' '+a.y+'</td><td>'+esc(a.rt)+'</td><td>'+esc(a.owner)+'</td><td class="desc">'+esc(a.desc)+'</td><td class="nw">'+esc(estLabel(a.est))+'</td></tr>'; }).join('')+'</tbody></table>'
           :'<p class="sub">No hay acciones con estos códigos en el archivo.</p>')+'</td></tr>';
