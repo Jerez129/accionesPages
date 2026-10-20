@@ -1,0 +1,947 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cumplimiento de Rutinas</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&display=swap">
+<style>
+/* Layout: tablero de piso. % del mes arriba, luego calendario rutina × día, semanas, tendencia y acciones. */
+:root{
+  --bg:#f2f4f7; --surface:#fcfdfd; --sunken:#eef1f4;
+  --ink:#0d1116; --ink-2:#465060; --muted:#677280;
+  --line:#dde2e8; --axis:#b9c2cc;
+  --accent:#1c5cab; --accent-ink:#ffffff; --series:#2a78d6;
+  --good:#0ca30c; --warn:#fab219; --crit:#d03b3b;
+  --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-label: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+  --r:6px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1114; --surface:#171b20; --sunken:#11151a;
+    --ink:#f3f5f7; --ink-2:#b8c0ca; --muted:#8a94a0;
+    --line:#2a3039; --axis:#3b434e;
+    --accent:#6da7ec; --accent-ink:#0d1116; --series:#3987e5;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1114; --surface:#171b20; --sunken:#11151a;
+  --ink:#f3f5f7; --ink-2:#b8c0ca; --muted:#8a94a0;
+  --line:#2a3039; --axis:#3b434e;
+  --accent:#6da7ec; --accent-ink:#0d1116; --series:#3987e5;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px;line-height:1.45}
+.wrap{max-width:1280px;margin:0 auto;padding-inline:20px;padding-block:22px 48px;display:flex;flex-direction:column;gap:22px}
+h1,h2,h3,p{margin:0}
+h1{font-size:24px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:16px;font-weight:600;text-wrap:balance}
+.lbl{font-family:var(--font-label);font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.sub{color:var(--ink-2);overflow-wrap:anywhere}
+.num{font-variant-numeric:tabular-nums}
+
+/* Encabezado */
+.top{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:flex-end;justify-content:space-between}
+.top > div:first-child{min-width:0;display:flex;flex-direction:column;gap:4px}
+.ctrls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ctrls label{display:inline-flex;gap:8px;align-items:center}
+button,select,.btn{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--axis);border-radius:var(--r);padding:7px 12px;cursor:pointer;line-height:1.3}
+button:hover,.btn:hover,select:hover{border-color:var(--ink-2)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:500}
+.btn.pri:hover{filter:brightness(1.08)}
+button.quiet{border-color:transparent;background:transparent;color:var(--ink-2);text-decoration:underline;text-underline-offset:3px;padding-inline:6px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.msg,.note{border:1px solid var(--crit);border-left-width:4px;background:var(--surface);padding:10px 14px;border-radius:var(--r)}
+.note{border-color:var(--warn)}
+.note.ok{border-color:var(--good)}
+input[type=text],input[type=number],input[type=search],input[type=date]{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--axis);border-radius:4px;padding:6px 9px}
+
+/* Zona de carga */
+.drop{border:2px dashed var(--axis);border-radius:10px;padding:34px 20px;text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center;background:var(--surface)}
+body.dragging .drop{border-color:var(--accent);background:var(--sunken)}
+.drop p{max-width:66ch}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;min-width:0}
+.sechead{display:flex;flex-wrap:wrap;gap:10px 20px;align-items:center;justify-content:space-between}
+.sechead > div:first-child{display:flex;flex-direction:column;gap:2px}
+
+/* Resumen */
+.month{display:grid;grid-template-columns:minmax(240px,3fr) minmax(0,4fr) minmax(0,5fr);gap:14px}
+.hero{display:flex;flex-direction:column;gap:8px}
+.hero .big{font-size:60px;font-weight:600;line-height:1;letter-spacing:-.02em}
+.facts{display:flex;flex-direction:column;gap:3px;color:var(--ink-2);font-size:13px}
+.meter{height:8px;border-radius:4px;background:var(--trk);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--st);border-radius:0 4px 4px 0}
+.s-good{--st:var(--good);--trk:color-mix(in srgb,var(--good) 18%,var(--surface))}
+.s-warn{--st:var(--warn);--trk:color-mix(in srgb,var(--warn) 24%,var(--surface))}
+.s-crit{--st:var(--crit);--trk:color-mix(in srgb,var(--crit) 16%,var(--surface))}
+.s-none{--st:var(--axis);--trk:var(--sunken)}
+.s-ser{--st:var(--series);--trk:var(--sunken)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;white-space:nowrap}
+.chip i{font-style:normal;display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--st);color:#fff;font-size:10px;font-weight:700;line-height:1}
+.chip.s-warn i{color:#1b1400}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--ink-2)}
+.legend .chip{font-weight:400}
+
+/* Barras horizontales */
+.hbars{display:flex;flex-direction:column;gap:2px;margin-top:10px}
+.hrow{display:grid;grid-template-columns:minmax(110px,38%) minmax(0,1fr) 92px;gap:4px 12px;align-items:center;padding:5px 6px;border-radius:4px}
+.hrow:hover,.hrow:focus-visible{background:var(--sunken)}
+.hrow .hl{min-width:0;overflow-wrap:anywhere}
+.hrow .ht{position:relative;height:12px;background:var(--sunken);border-radius:0 4px 4px 0}
+.hrow:hover .ht,.hrow:focus-visible .ht{background:var(--line)}
+.hrow .ht i{position:absolute;left:0;top:0;bottom:0;background:var(--st);border-radius:0 4px 4px 0;min-width:1px}
+.hrow .ht u{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--ink);text-decoration:none}
+.hrow .hv{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.hrow .hv small{color:var(--ink-2);margin-left:6px}
+.hempty{margin-top:10px}
+
+/* Filtro */
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{padding:5px 12px;border-radius:999px}
+.seg button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+
+/* Calendario rutina × día */
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+thead th{font-family:var(--font-label);font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);white-space:nowrap;border-bottom-color:var(--axis)}
+thead th small{display:block;font-family:var(--font);font-size:10.5px;font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted)}
+td.r,th.r{text-align:right;white-space:nowrap}
+td.c,th.c{text-align:center}
+tr.area td{background:var(--sunken);font-weight:600;border-bottom-color:var(--axis)}
+.cal{min-width:980px}
+.cal th,.cal td{padding:2px 1px;text-align:center}
+.cal thead th{font-size:11px;letter-spacing:0;padding:4px 1px}
+.cal thead th small{font-size:10px}
+.cal th:first-child,.cal td:first-child{position:sticky;left:0;z-index:1;background:var(--surface);text-align:left;padding:4px 10px 4px 0;min-width:250px;max-width:290px}
+.cal tr.area td{background:var(--sunken)}
+.cal tr.area td:first-child{background:var(--sunken)}
+.cal td.rn{font-size:13px;line-height:1.25}
+.cal td.rn small{display:block;color:var(--muted);font-size:11px}
+.cal .rh{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.cal .rh .tag{font-weight:600;flex:none}
+.cal .we{background:color-mix(in srgb,var(--sunken) 70%,transparent)}
+.cal .fut{opacity:.55}
+.dc{width:26px;height:26px;padding:0;font-size:11px;font-weight:600;border-radius:4px;border:1px solid transparent;background:transparent;color:var(--muted);display:inline-grid;place-items:center;font-variant-numeric:tabular-nums}
+.dc:hover{border-color:var(--ink-2)}
+.dc.ok{background:color-mix(in srgb,var(--good) 24%,transparent);color:var(--ink)}
+.dc.fail{background:color-mix(in srgb,var(--crit) 20%,transparent);color:var(--crit)}
+.dc.pend{border:1px dashed var(--ink-2);color:var(--ink-2)}
+.dc.ovr{box-shadow:inset 0 0 0 2px var(--accent)}
+.keys{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;color:var(--ink-2);font-size:12.5px}
+.keys span{display:inline-flex;gap:6px;align-items:center}
+.keys .dc{width:20px;height:20px;cursor:default;font-size:10px}
+td.wk{text-align:center;white-space:nowrap;min-width:64px}
+td.wk span{display:block;border-radius:4px;padding:3px 6px;background:var(--cellbg)}
+td.wk small{display:block;font-size:11px;color:var(--ink-2)}
+td.wk.s-good span{--cellbg:color-mix(in srgb,var(--good) 20%,transparent)}
+td.wk.s-warn span{--cellbg:color-mix(in srgb,var(--warn) 30%,transparent)}
+td.wk.s-crit span{--cellbg:color-mix(in srgb,var(--crit) 18%,transparent)}
+td.wk.s-none span{--cellbg:transparent;color:var(--muted)}
+.extra{color:var(--ink-2);font-size:12px}
+.rt td:first-child,.rt th:first-child{min-width:230px}
+.tag{display:inline-block;border:1px solid var(--axis);border-radius:999px;padding:0 8px;font-size:12px;color:var(--ink-2);white-space:nowrap}
+.tag.s-crit{border-color:var(--crit);color:var(--crit)}
+.tag.s-warn{border-color:var(--warn)}
+.tag.s-good{border-color:var(--good)}
+
+/* Gráfica de columnas */
+.chart{display:flex;flex-direction:column;gap:6px}
+.plot{position:relative;height:200px;margin:22px 0 0 34px;border-bottom:1px solid var(--axis)}
+.grid{position:absolute;left:0;right:0;border-top:1px solid var(--line)}
+.grid span{position:absolute;left:-34px;top:-8px;width:28px;text-align:right;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.goal{position:absolute;left:0;right:0;border-top:2px dashed var(--ink-2);z-index:1}
+.goal span{position:absolute;right:0;top:-18px;font-size:11px;color:var(--ink-2);background:var(--surface);padding:0 4px}
+.cols{position:absolute;inset:0;display:flex;justify-content:space-around;align-items:flex-end}
+.col{position:relative;flex:1;height:100%;display:flex;justify-content:center;align-items:flex-end;cursor:default}
+.col b{display:block;width:28px;background:var(--st);border-radius:4px 4px 0 0;min-height:1px}
+.col:hover b,.col:focus-visible b{filter:brightness(1.15)}
+.col em{position:absolute;left:0;right:0;text-align:center;font-style:normal;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;padding-bottom:3px}
+.xlab{display:flex;justify-content:space-around;margin-left:34px}
+.xlab div{flex:1;text-align:center;min-width:0}
+.xlab strong{display:block;font-family:var(--font-label);font-size:13px}
+.xlab small{display:block;font-size:11px;color:var(--muted)}
+
+/* Acciones */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px}
+.tile{display:flex;flex-direction:column;gap:4px}
+.tile .v{font-size:30px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}
+.tile .v.crit{color:var(--crit)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}
+.tools input[type=search]{width:240px;min-width:0;flex:0 1 auto}
+.acts td{vertical-align:top}
+.acts td.desc{min-width:260px;max-width:520px;overflow-wrap:anywhere}
+.acts td.nw{white-space:nowrap}
+
+/* Planificador */
+.ptable{min-width:1060px}
+.ptable th,.ptable td{padding:4px 5px;vertical-align:middle}
+.ptable input[type=text]{width:100%;font-size:13px;padding:5px 7px}
+.ptable input[type=number]{width:64px;font-size:13px;padding:5px 7px;text-align:right}
+.ptable select{font-size:13px;padding:5px 4px}
+.ptable .rm{border:0;background:none;color:var(--muted);padding:4px 8px;font-size:17px;line-height:1}
+.ptable .rm:hover{color:var(--crit)}
+.ptable tr.off td{color:var(--muted)}
+.wds{display:inline-flex;gap:2px}
+.wds button{width:26px;height:26px;padding:0;font-size:12px;border-radius:4px}
+.wds button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.rules{display:flex;flex-wrap:wrap;gap:14px 28px;align-items:center}
+.rules label{display:inline-flex;gap:8px;align-items:center}
+
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:22px}
+.notes ul{margin:8px 0 0;padding-left:18px;color:var(--ink-2);display:flex;flex-direction:column;gap:5px;max-width:70ch}
+.notes .card{display:flex;flex-direction:column;gap:4px}
+
+[hidden]{display:none!important}
+
+/* Pestañas */
+.tabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--axis)}
+.tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;padding:9px 14px 8px;color:var(--ink-2);font-weight:500;margin-bottom:-1px}
+.tabs button:hover{color:var(--ink)}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.view{display:flex;flex-direction:column;gap:22px}
+
+#tip{position:fixed;z-index:20;pointer-events:none;background:var(--ink);color:var(--bg);padding:7px 10px;border-radius:5px;font-size:12.5px;line-height:1.4;white-space:pre-line;max-width:300px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+
+@media (max-width:1020px){
+  .month{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .month .hero{grid-column:1/-1}
+}
+@media (max-width:620px){
+  .wrap{padding-inline:16px}
+  .month{grid-template-columns:minmax(0,1fr)}
+  .hero .big{font-size:52px}
+  .hrow{grid-template-columns:minmax(0,1fr) 92px}
+  .hrow .hl{grid-column:1/-1}
+  .two{grid-template-columns:minmax(0,1fr)}
+  .tools input[type=search]{width:100%}
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <span class="lbl">Acciones · Rutinas de gestión</span>
+      <h1>Cumplimiento de rutinas y acciones</h1>
+      <p class="sub" id="subtitle">Carga el Excel de acciones de Safety para medir el cumplimiento de las reuniones.</p>
+    </div>
+    <div class="ctrls">
+      <label class="vh" for="monthSel">Mes</label>
+      <select id="monthSel" hidden></select>
+      <label class="btn pri" for="fileIn" id="fileBtn" tabindex="0">Cargar Excel</label>
+      <input class="vh" type="file" id="fileIn" accept=".xlsx,.xls,.csv" multiple tabindex="-1">
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Vista">
+    <button type="button" role="tab" data-view="cum">Cumplimiento del mes</button>
+    <button type="button" role="tab" data-view="ten">Tendencia</button>
+    <button type="button" role="tab" data-view="act">Acciones</button>
+    <button type="button" role="tab" data-view="plan">Planificador</button>
+  </nav>
+
+  <div class="msg" id="msg" role="alert" hidden></div>
+  <div class="note ok" id="info" role="status" hidden></div>
+
+  <section id="empty" style="display:flex;flex-direction:column;gap:22px">
+    <div class="drop" id="drop">
+      <h2>Arrastra aquí el Excel de acciones</h2>
+      <p class="sub">El archivo se lee en tu navegador y no se sube a ningún servidor. Es la descarga del tablero de acciones (action log) con las columnas Routina, Fecha creación, Estatus y Fecha compromiso. También puedes soltar aquí el Excel REFERENCIA para cargar el planificador de reuniones.</p>
+      <label class="btn pri" for="fileIn">Elegir archivo</label>
+    </div>
+  </section>
+
+  <div class="view" id="vCum" hidden></div>
+  <div class="view" id="vTen" hidden></div>
+  <div class="view" id="vAct" hidden></div>
+  <div class="view" id="vPlan" hidden></div>
+</div>
+<div id="tip" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+(function(){
+'use strict';
+/* Planificador de reuniones de REFERENCIA.xlsx (DC Bavaro, julio 2026).
+   [Rutina, Frecuencia, Responsable, Área, Aplica]. Diarias: martes a viernes; semanales: lunes; mensuales: día 30. */
+var DEFAULT_CAT = [
+  ['Diaria Logistica','Diaria','Johansell Perez','Gestion',1],
+  ['Cambio de turno almacén','Diaria','TBA','Almacen',1],
+  ['Matutina de Distribución','Diaria','Luis Eduardo','Distribucion',1],
+  ['Matinal de Flota','Diaria','Carlos de la Cruz','Flota',0],
+  ['Auditoría en ruta (diaria)','Diaria','','',0],
+  ['Inspección en sitio (diaria)','Diaria','','',0],
+  ['Cambio de Turno Flota','Diaria','','',0],
+  ['Reunión Cambio de turno','Diaria','','',0],
+  ['Rutina Semanal Safety','Semanal','Jorge Reyes','Safety',1],
+  ['Semanal Ventas y Logística (RCOG)','Semanal','Luis Eduardo','Gestion',1],
+  ['Rutina semanal de distribución','Semanal','Luis Eduardo','Gestion',1],
+  ['Semanal de Flota','Semanal','Carlos de la Cruz','Flota',1],
+  ['Semanal de Almacén','Semanal','TBA','Almacen',1],
+  ['Revisar salida de rutas (diaria)','Semanal','','',0],
+  ['Revisar salida de rutas (semanal)','Semanal','','',0],
+  ['Rutina semanal de Gestión','Semanal','','',0],
+  ['Inspección en sitio (semanal)','Semanal','','',0],
+  ['OWDs','Semanal','','',0],
+  ['Auditoría en ruta (semanal)','Semanal','','',0],
+  ['Rutina 5s','Mensual','Yalenny Hernandez','People',1],
+  ['Comite de Gente (mensual)','Mensual','Yalenny Hernandez','People',1],
+  ['PRP CD','Mensual','Johansell Perez','Gestion',1],
+  ['Cutover (post y pre inventario)','Mensual','Freyky Reyes','Almacen',1],
+  ['Inspección en sitio (mensual)','Mensual','Luis Eduardo','Almacen',1],
+  ['Paquetes de gastos','Mensual','Johansell Perez','Gestion',1],
+  ['Supermatutina Distribución','Mensual','Luis Eduardo','Gestion',1],
+  ['Supervespertina Almacen','Mensual','TBA','Almacen',1],
+  ['Mensual de calidad','Mensual','','',0],
+  ['PRP GRO','Mensual','','',0],
+  ['Auditoría en ruta (mensual)','Mensual','','',0],
+  ['Marketplace','Mensual','','',0],
+  ['Rutina Mensual financiera (Inventarios)','Mensual','Jordan Ceballos','Almacen',0],
+  ['Ronda de Blindaje','Mensual','Dayloren Brazoban','People',0],
+  ['Monitoreo de Gestión de CAPEX','Mensual','','',0],
+  ['Mensual de Almacén','Mensual','','',0],
+  ['Comite de Seguridad y Salud Ocupacional','Puntual','','',0],
+  ['Check to Coach','Puntual','','',0]
+];
+var FREQS = ['Diaria','Semanal','Mensual','Puntual'];
+var TOL = {Diaria:1, Semanal:5, Mensual:5, Puntual:1};
+var PL = {Diaria:'Diarias', Semanal:'Semanales', Mensual:'Mensuales', Puntual:'Puntuales'};
+var MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+var MES3 = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+var WD1 = ['L','M','X','J','V','S','D'];
+var WDN = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'];
+var EST = {completed:'Completada', open:'Abierta', in_progress:'En progreso'};
+var KEY = 'cumplimiento-rutinas-v1';
+var DAY = 86400000;
+
+function mkRoutine(name,freq,resp,area,aplica){
+  return {name:name, freq:freq, resp:resp||'', area:area||'', aplica:!!aplica, wds:[1,2,3,4], wd:0, dom:30, tol:TOL[freq]!=null?TOL[freq]:1};
+}
+function defCat(){ return DEFAULT_CAT.map(function(a){ return mkRoutine(a[0],a[1],a[2],a[3],a[4]); }); }
+var S = {acts:[], fileName:'', agency:'', cat:defCat(), ov:{}, meta:0.9, month:null, view:'cum', freq:'all', area:'all', hasta:null, showAll:false,
+  q:'', pil:'all', est:'all', planFile:'', lim:100};
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function clean(v){ return String(v==null?'':v).replace(/["“”]/g,'').replace(/\s+/g,' ').trim(); }
+function norm(v){ return clean(v).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(); }
+function dn(y,m,d){ return Math.round(Date.UTC(y,m-1,d)/DAY); }
+function parts(n){ var t=new Date(n*DAY); return {y:t.getUTCFullYear(), m:t.getUTCMonth()+1, d:t.getUTCDate(), wd:(t.getUTCDay()+6)%7}; }
+function isoWeek(n){ var p=parts(n), thu=n-p.wd+3, y=parts(thu).y; return Math.floor((thu-dn(y,1,1))/7)+1; }
+function lastOfMonth(y,m){ return dn(m===12?y+1:y, m===12?1:m+1, 1)-1; }
+function todayDn(){ var t=new Date(); return dn(t.getFullYear(),t.getMonth()+1,t.getDate()); }
+function isoD(n){ var p=parts(n); return p.y+'-'+(p.m<10?'0':'')+p.m+'-'+(p.d<10?'0':'')+p.d; }
+function fromIso(s){ var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||''); return m ? dn(+m[1],+m[2],+m[3]) : null; }
+function dLabel(n){ var p=parts(n); return p.d+' '+MES3[p.m-1]; }
+function dLong(n){ var p=parts(n); return WDN[p.wd]+' '+p.d+' de '+MESES[p.m-1]; }
+function rangeLabel(a,b){ var p=parts(a), q=parts(b); return p.m===q.m ? p.d+'–'+q.d+' '+MES3[q.m-1] : p.d+' '+MES3[p.m-1]+'–'+q.d+' '+MES3[q.m-1]; }
+function pct(p){ return p==null ? '—' : Math.round(p*100)+' %'; }
+function warnAt(){ return Math.max(0, S.meta-0.2); }
+function status(p){ return p==null ? 'none' : p>=S.meta-1e-9 ? 'good' : p>=warnAt()-1e-9 ? 'warn' : 'crit'; }
+var ST = {good:['✓','En meta'], warn:['!','Cerca'], crit:['✕','Bajo'], none:['–','Sin reuniones']};
+function chip(p,txt){ var s=typeof p==='string'?p:status(p); return '<span class="chip s-'+s+'"><i aria-hidden="true">'+ST[s][0]+'</i>'+(txt||ST[s][1])+'</span>'; }
+function meter(p,cls){ var s=cls||status(p); return '<div class="meter s-'+s+'"><i style="width:'+(p==null?0:Math.min(100,Math.max(0,p*100))).toFixed(1)+'%"></i></div>'; }
+function estLabel(e){ return EST[norm(e)] || e || '—'; }
+function isDone(e){ return norm(e)==='completed'; }
+
+/* ---------- Persistencia (solo comodidad de este navegador) ---------- */
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify({cat:S.cat, ov:S.ov, meta:S.meta, fileName:S.fileName, agency:S.agency, month:S.month, view:S.view,
+    freq:S.freq, area:S.area, hasta:S.hasta, showAll:S.showAll, planFile:S.planFile,
+    acts:S.acts.map(function(a){ return [a.id,a.rt,a.dn,a.hm,a.owner,a.pos,a.pil,a.kpi,a.tool,a.desc,a.inv,a.est,a.comp,a.org]; })})); }catch(_){}
+}
+function load(){
+  try{
+    var o=JSON.parse(localStorage.getItem(KEY)||'null'); if(!o) return;
+    if(Array.isArray(o.cat) && o.cat.length) S.cat=o.cat.filter(function(r){ return r && r.name; }).map(function(r){ var b=mkRoutine(r.name,r.freq,r.resp,r.area,r.aplica); return Object.assign(b,r); });
+    if(o.ov && typeof o.ov==='object') S.ov=o.ov;
+    if(typeof o.meta==='number' && o.meta>0 && o.meta<=1) S.meta=o.meta;
+    S.fileName=o.fileName||''; S.agency=o.agency||''; S.month=o.month||null; S.planFile=o.planFile||'';
+    if(['cum','ten','act','plan'].indexOf(o.view)>=0) S.view=o.view;
+    S.freq=o.freq||'all'; S.area=o.area||'all'; S.hasta=typeof o.hasta==='number'?o.hasta:null; S.showAll=!!o.showAll;
+    S.acts=(o.acts||[]).map(function(a){ return mkAct(a[0],a[1],a[2],a[3],a[4],a[5],a[6],a[7],a[8],a[9],a[10],a[11],a[12],a[13]); });
+  }catch(_){}
+}
+function mkAct(id,rt,d,hm,owner,pos,pil,kpi,tool,desc,inv,est,comp,org){
+  var p=parts(d);
+  return {id:id,rt:rt,rk:norm(rt),dn:d,y:p.y,m:p.m,hm:hm,owner:owner,pos:pos,pil:pil,kpi:kpi,tool:tool,desc:desc,inv:inv,est:est,comp:comp,org:org};
+}
+
+/* ---------- Lectura de los Excel ---------- */
+function parseDate(v){
+  if(v==null||v==='') return null;
+  if(v instanceof Date && !isNaN(v)) return {dn:dn(v.getFullYear(),v.getMonth()+1,v.getDate()), hm:''};
+  if(typeof v==='number' && isFinite(v)){
+    var c=XLSX.SSF.parse_date_code(v); if(!c||!c.y) return null;
+    return {dn:dn(c.y,c.m,c.d), hm:(c.H<10?'0':'')+c.H+':'+(c.M<10?'0':'')+c.M};
+  }
+  var s=String(v).trim(), t=(s.match(/(\d{1,2}):(\d{2})/)||[]), hm=t.length?(t[1].length<2?'0':'')+t[1]+':'+t[2]:'';
+  var m=s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if(m) return {dn:dn(+m[1],+m[2],+m[3]), hm:hm};
+  m=s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
+  if(m) return {dn:dn(+m[3],+m[2],+m[1]), hm:hm};
+  return null;
+}
+function sheetRows(wb){ return wb.SheetNames.map(function(n){ return {name:n, rows:XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:''})}; }); }
+function findHeader(all, test){
+  for(var s=0;s<all.length;s++) for(var i=0;i<Math.min(all[s].rows.length,25);i++){
+    var h=(all[s].rows[i]||[]).map(norm);
+    if(test(h)) return {rows:all[s].rows, i:i, h:h, sheet:all[s].name};
+  }
+  return null;
+}
+function findActs(all){ return findHeader(all, function(h){ return (h.indexOf('routina')>=0||h.indexOf('rutina')>=0) && h.indexOf('fecha creacion')>=0 && h.indexOf('estatus')>=0; }); }
+function findPlanner(all){ return findHeader(all, function(h){ return (h.indexOf('routina')>=0||h.indexOf('rutina')>=0) && h.indexOf('frecuencia')>=0 && h.indexOf('aplica')>=0 && h.indexOf('fecha')>=0; }); }
+
+function parseActs(f){
+  var h=f.h; function c(n){ return h.indexOf(n); }
+  var cR=c('routina'); if(cR<0) cR=c('rutina');
+  var cF=c('fecha creacion'), cId=c('folio number'), cO=c('dueno'), cP=c('posicion de dueno'), cPi=c('pilar'), cK=c('kpi'), cT=c('herramienta de gestion'),
+      cD=c('descripcion'), cI=c('involucrados'), cE=c('estatus'), cC=c('fecha compromiso'), cOr=c('origen'), cA=c('agencia');
+  function g(row,i){ return i>=0 ? clean(row[i]) : ''; }
+  var out=[], seen={}, bad=0, ag={};
+  for(var r=f.i+1;r<f.rows.length;r++){
+    var row=f.rows[r]; if(!row) continue;
+    var rt=g(row,cR), fd=parseDate(row[cF]);
+    if(!rt && !fd) continue;
+    if(!fd){ bad++; continue; }
+    /* El folio se repite a veces entre acciones distintas: solo es duplicado si también coinciden fecha, hora y descripción. */
+    var id=g(row,cId), key=[id,norm(rt),fd.dn,fd.hm,norm(g(row,cO)),norm(g(row,cD))].join('|');
+    if(seen[key]) continue; seen[key]=1;
+    var cp=parseDate(row[cC]);
+    out.push(mkAct(id, rt||'(sin rutina)', fd.dn, fd.hm, g(row,cO), g(row,cP), g(row,cPi), g(row,cK), g(row,cT), g(row,cD), g(row,cI), g(row,cE), cp?cp.dn:null, g(row,cOr)));
+    if(cA>=0 && row[cA]) ag[clean(row[cA])]=(ag[clean(row[cA])]||0)+1;
+  }
+  if(!out.length) throw new Error('El archivo no trae acciones con rutina y fecha de creación.');
+  var agency=Object.keys(ag).sort(function(a,b){ return ag[b]-ag[a]; });
+  return {acts:out, bad:bad, agency:agency.length>1?agency[0]+' y '+(agency.length-1)+' más':(agency[0]||'')};
+}
+
+/* El planificador de REFERENCIA: una fila por rutina, "x" en Aplica y un 1 en cada día de reunión. */
+function parsePlanner(f){
+  var h=f.h, head=f.rows[f.i];
+  var cR=h.indexOf('routina'); if(cR<0) cR=h.indexOf('rutina');
+  var cF=h.indexOf('frecuencia'), cQ=h.indexOf('quien'), cA=h.indexOf('area'), cAp=h.indexOf('aplica'), cFe=h.indexOf('fecha');
+  if(cQ<0) cQ=h.indexOf('responsable');
+  var dcols=[];
+  for(var c=cFe+1;c<head.length;c++){ var d=parseDate(head[c]); if(d) dcols.push({c:c,dn:d.dn}); }
+  var cat=[], marks=[];
+  for(var r=f.i+1;r<f.rows.length;r++){
+    var row=f.rows[r]||[], name=clean(row[cR]);
+    if(!name || name==='.' || /^\.+$/.test(name)) continue;
+    var fq=norm(row[cF]), freq=fq.indexOf('diar')===0?'Diaria':fq.indexOf('seman')===0?'Semanal':fq.indexOf('mens')===0?'Mensual':fq?'Puntual':'';
+    if(!freq) continue;
+    var resp=clean(row[cQ]); if(resp==='0') resp='';
+    var area=clean(row[cA]); if(area==='0') area='';
+    var rt=mkRoutine(name,freq,resp,area,norm(row[cAp])==='x');
+    var days=dcols.filter(function(dc){ return +row[dc.c]===1; }).map(function(dc){ return dc.dn; });
+    if(days.length){
+      if(freq==='Diaria'){ var w={}; days.forEach(function(d){ w[parts(d).wd]=1; }); rt.wds=Object.keys(w).map(Number).sort(); }
+      else if(freq==='Semanal'){ rt.wd=mode(days.map(function(d){ return parts(d).wd; })); }
+      else if(freq==='Mensual'){ rt.dom=mode(days.map(function(d){ return parts(d).d; })); }
+    }
+    cat.push(rt); marks.push(days);
+  }
+  if(!cat.length) throw new Error('El planificador no trae rutinas.');
+  return {cat:cat, marks:marks, dcols:dcols};
+}
+function mode(a){ var c={}, b=a[0]; a.forEach(function(x){ c[x]=(c[x]||0)+1; if(c[x]>c[b]) b=x; }); return b; }
+function importPlanner(P){
+  S.cat=P.cat; S.ov={};
+  /* Los días marcados que no siguen el patrón quedan como cambios del calendario de ese mes. */
+  if(P.dcols.length){
+    var a=P.dcols[0].dn, b=P.dcols[P.dcols.length-1].dn;
+    S.cat.forEach(function(rt,i){
+      var set={}; P.marks[i].forEach(function(d){ set[d]=1; });
+      for(var d=a; d<=b; d++){ var want=!!set[d], base=basePlanned(rt,d); if(want!==base) S.ov[rk(rt)+'|'+d]=want?1:0; }
+    });
+  }
+  var mo=P.dcols.length?parts(P.dcols[0].dn):null;
+  return S.cat.filter(function(r){ return r.aplica; }).length+' rutinas que aplican de '+S.cat.length+(mo?' (plan de '+MESES[mo.m-1]+' '+mo.y+')':'');
+}
+
+var infos=[], gotPlan=false;
+function readFile(file){
+  return new Promise(function(res){
+    var fr=new FileReader();
+    fr.onerror=function(){ res('No pude leer "'+file.name+'". Intenta cargarlo de nuevo.'); };
+    fr.onload=function(){
+      try{
+        if(typeof XLSX==='undefined') throw new Error('No se cargó el lector de Excel. Revisa tu conexión y recarga la página.');
+        var all=sheetRows(XLSX.read(new Uint8Array(fr.result),{type:'array'})), pl=findPlanner(all), msgs=[];
+        if(pl){
+          infos.push('Se cargó el planificador de "'+file.name+'": '+importPlanner(parsePlanner(pl))+'.');
+          S.planFile=file.name; gotPlan=true;
+          res(''); return;   /* REFERENCIA también trae una hoja de acciones pegadas; se usa solo su planificador. */
+        }
+        var a=findActs(all);
+        if(!a) throw new Error('No reconocí "'+file.name+'". Las acciones deben traer las columnas "Routina", "Fecha creación" y "Estatus"; el planificador, las columnas "Routina", "Frecuencia", "Aplica" y "Fecha".');
+        var out=parseActs(a); S.acts=out.acts; S.fileName=file.name; S.agency=out.agency; S.month=null; S.hasta=null; S.lim=100;
+        infos.push('Se cargaron '+out.acts.length+' acciones de "'+file.name+'".');
+        if(out.bad) msgs.push('Se omitieron '+out.bad+' filas sin fecha de creación válida.');
+        res(msgs.join(' '));
+      }catch(err){ res(err.message||String(err)); }
+    };
+    fr.readAsArrayBuffer(file);
+  });
+}
+function readFiles(list){
+  var files=Array.prototype.slice.call(list||[]); if(!files.length) return;
+  var msgs=[]; infos=[]; gotPlan=false;
+  files.reduce(function(p,f){ return p.then(function(){ return readFile(f); }).then(function(m){ if(m) msgs.push(m); }); }, Promise.resolve())
+    .then(function(){ showMsg(msgs.join(' ')); showInfo(infos.join(' ')); if(gotPlan && !S.acts.length) S.view='plan'; save(); render(); });
+}
+function showMsg(t){ var m=$('msg'); m.textContent=t||''; m.hidden=!t; }
+function showInfo(t){ var m=$('info'); m.textContent=t||''; m.hidden=!t; }
+
+/* ---------- Plan ---------- */
+function rk(rt){ return norm(rt.name); }
+function basePlanned(rt,d){
+  if(!rt.aplica) return false;
+  var p=parts(d);
+  if(rt.freq==='Diaria') return rt.wds.indexOf(p.wd)>=0;
+  if(rt.freq==='Semanal') return p.wd===+rt.wd;
+  if(rt.freq==='Mensual'){ var last=parts(lastOfMonth(p.y,p.m)).d; return p.d===Math.min(Math.max(1,+rt.dom||1),last); }
+  return false;
+}
+function isPlanned(rt,d){ var k=rk(rt)+'|'+d; return (k in S.ov) ? S.ov[k]===1 : basePlanned(rt,d); }
+function patternTxt(rt){
+  if(rt.freq==='Diaria') return rt.wds.length?rt.wds.map(function(w){ return WDN[w]; }).join(', '):'sin días';
+  if(rt.freq==='Semanal') return 'cada '+WDN[+rt.wd];
+  if(rt.freq==='Mensual') return 'día '+rt.dom+' de cada mes';
+  return 'solo los días marcados en el calendario';
+}
+
+/* ---------- Cálculo ---------- */
+var IDX=null, IDXsrc=null;
+function index(){
+  if(IDXsrc===S.acts) return IDX;
+  IDX={}; S.acts.forEach(function(a){ var m=IDX[a.rk]||(IDX[a.rk]={}); m[a.dn]=(m[a.dn]||0)+1; });
+  IDXsrc=S.acts; return IDX;
+}
+function lastData(){ return S.acts.reduce(function(a,x){ return Math.max(a,x.dn); }, -1e9); }
+function hasta(){ return S.hasta!=null ? S.hasta : Math.min(lastData(), todayDn()); }
+function months(){ var s={}; S.acts.forEach(function(a){ s[a.y+'-'+(a.m<10?'0':'')+a.m]=1; }); return Object.keys(s).sort(); }
+function inScope(rt){ return (S.freq==='all'||rt.freq===S.freq) && (S.area==='all'||norm(rt.area)===S.area); }
+function roll(){ return {opp:0, ok:0, pend:0, cnt:0, p:null}; }
+function fin(R){ R.p=R.opp>0?R.ok/R.opp:null; return R; }
+function add(R,c){ if(!c.plan) return; if(c.st==='pend'){ R.pend++; return; } R.opp++; R.cnt+=c.cnt; if(c.st==='ok') R.ok++; }
+/* Una reunión planificada se cumple si se subió al menos una acción de esa rutina el día de la reunión
+   o en los días de tolerancia siguientes (diaria +1 día; semanal y mensual +5 días). */
+function cellFor(rt,d,H,ix){
+  var m=ix[rk(rt)]||{}, raw=m[d]||0, plan=isPlanned(rt,d), cnt=0, st='none';
+  if(plan){
+    for(var k=0;k<=(+rt.tol||0);k++) cnt+=m[d+k]||0;
+    st = d>H ? 'pend' : cnt>0 ? 'ok' : 'fail';
+  }
+  return {d:d, raw:raw, plan:plan, cnt:cnt, st:st, ov:(rk(rt)+'|'+d) in S.ov};
+}
+function computeMonth(y,m){
+  var ix=index(), H=hasta(), a=dn(y,m,1), b=lastOfMonth(y,m), days=[];
+  for(var d=a; d<=b; d++) days.push(d);
+  var rows=[], T=roll(), byF={}, byR={}, byA={}, wk={}, weeks=[];
+  days.forEach(function(d){ var w=isoWeek(d); if(!(w in wk)){ wk[w]={n:w,start:d,end:d}; weeks.push(wk[w]); } wk[w].end=d; });
+  S.cat.forEach(function(rt,i){
+    if(!inScope(rt)) return;
+    var cells=days.map(function(d){ return cellFor(rt,d,H,ix); }), R=roll(), W={}, raw=0;
+    cells.forEach(function(c){ raw+=c.raw; add(R,c); if(c.plan){ var w=isoWeek(c.d); add(W[w]||(W[w]=roll()), c); } });
+    fin(R); Object.keys(W).forEach(function(k){ fin(W[k]); });
+    var planned=cells.some(function(c){ return c.plan; });
+    var row={i:i, rt:rt, cells:cells, roll:R, wk:W, raw:raw, planned:planned};
+    rows.push(row);
+    if(!planned) return;
+    [[byF,rt.freq],[byR,rt.resp||'Sin responsable'],[byA,rt.area||'Sin área']].forEach(function(p){
+      var o=p[0][p[1]]||(p[0][p[1]]=roll()); cells.forEach(function(c){ add(o,c); });
+    });
+    cells.forEach(function(c){ add(T,c); });
+  });
+  fin(T);
+  function list(o){ return Object.keys(o).map(function(k){ return {name:k, roll:fin(o[k])}; }); }
+  /* Acciones del mes en rutinas que no están en el planificador o que no aplican. */
+  var known={}; S.cat.forEach(function(rt){ known[rk(rt)]=rt; });
+  var out={}, monthActs=0;
+  S.acts.forEach(function(x){
+    if(x.y!==y||x.m!==m) return; monthActs++;
+    var rt=known[x.rk];
+    if(!rt || !rows.some(function(r){ return r.rt===rt && r.planned; })){ if(!rt || inScope(rt)) out[x.rt]=(out[x.rt]||0)+1; }
+  });
+  return {y:y, m:m, days:days, H:H, rows:rows, T:T, weeks:weeks,
+    byF:list(byF).sort(function(a,b){ return FREQS.indexOf(a.name)-FREQS.indexOf(b.name); }),
+    byR:list(byR).sort(function(a,b){ return (b.roll.p==null?-1:b.roll.p)-(a.roll.p==null?-1:a.roll.p) || a.name.localeCompare(b.name,'es'); }),
+    byA:list(byA), out:out, monthActs:monthActs};
+}
+
+/* ---------- Render común ---------- */
+function hbars(title,rows,opts){
+  opts=opts||{};
+  if(!rows.length) return '<span class="lbl">'+title+'</span><p class="sub hempty">'+(opts.empty||'Sin datos.')+'</p>';
+  var h='<span class="lbl">'+title+'</span><div class="hbars">';
+  rows.forEach(function(x){
+    var r=x.roll, w=r.p==null?0:Math.min(1,r.p)*100;
+    h+='<div class="hrow s-'+status(r.p)+'" tabindex="0" data-tip="'+esc(x.name+'\nReuniones con acciones: '+r.ok+' de '+r.opp+(r.pend?'\nPendientes: '+r.pend:'')+'\nCumplimiento: '+pct(r.p)+' · '+ST[status(r.p)][1])+'">'+
+      '<span class="hl">'+esc(x.name)+'</span><div class="ht"><i style="width:'+w.toFixed(1)+'%"></i><u style="left:'+(S.meta*100).toFixed(1)+'%"></u></div>'+
+      '<span class="hv"><strong>'+pct(r.p)+'</strong><small>'+r.ok+'/'+r.opp+'</small></span></div>';
+  });
+  return h+'</div>';
+}
+function cbars(title,rows,opts){
+  opts=opts||{};
+  if(!rows.length) return '<span class="lbl">'+title+'</span><p class="sub hempty">'+(opts.empty||'Sin datos.')+'</p>';
+  var mx=Math.max.apply(null, rows.filter(function(x){ return !x.cls; }).map(function(x){ return x.n; }))||1, tot=rows.reduce(function(s,x){ return s+x.n; },0);
+  var h='<span class="lbl">'+title+'</span><div class="hbars">';
+  rows.forEach(function(x){
+    h+='<div class="hrow '+(x.cls||'s-ser')+'" tabindex="0" data-tip="'+esc(x.name+'\n'+x.n+' acciones · '+Math.round(x.n/tot*100)+' % del total'+(x.tip?'\n'+x.tip:''))+'">'+
+      '<span class="hl">'+esc(x.name)+'</span><div class="ht"><i style="width:'+(Math.min(1,x.n/mx)*100).toFixed(1)+'%"></i></div>'+
+      '<span class="hv"><strong>'+x.n+'</strong><small>'+Math.round(x.n/tot*100)+' %</small></span></div>';
+  });
+  return h+'</div>';
+}
+function wkCell(R,label){
+  if(!R || (!R.opp && !R.pend)) return '<td class="wk s-none"><span>—</span></td>';
+  if(!R.opp) return '<td class="wk s-none" data-tip="'+esc(label+'\n'+R.pend+' reuniones todavía por medir')+'"><span>Pend.<small>'+R.pend+'</small></span></td>';
+  var tip=label+'\nReuniones con acciones: '+R.ok+' de '+R.opp+(R.pend?'\nPendientes: '+R.pend:'')+'\nCumplimiento: '+pct(R.p);
+  return '<td class="wk s-'+status(R.p)+'" data-tip="'+esc(tip)+'"><span>'+pct(R.p)+'<small>'+R.ok+'/'+R.opp+'</small></span></td>';
+}
+function legend(){ return chip('good','En meta: '+Math.round(S.meta*100)+' % o más')+chip('warn','Cerca: desde '+Math.round(warnAt()*100)+' %')+chip('crit','Bajo: menos de '+Math.round(warnAt()*100)+' %'); }
+function monthSel(){
+  var ms=months(); if(!ms.length) return null;
+  if(!S.month||ms.indexOf(S.month)<0) S.month=ms[ms.length-1];
+  $('monthSel').innerHTML=ms.map(function(k){ var p=k.split('-'); return '<option value="'+k+'"'+(k===S.month?' selected':'')+'>'+MESES[+p[1]-1]+' '+p[0]+'</option>'; }).join('');
+  var p=S.month.split('-'); return {y:+p[0], m:+p[1]};
+}
+function areas(){ var s={}; S.cat.forEach(function(rt){ if(rt.area) s[norm(rt.area)]=rt.area; }); return Object.keys(s).sort().map(function(k){ return {k:k, name:s[k]}; }); }
+function scopeCtrls(){
+  var fr=['all'].concat(FREQS.filter(function(f){ return S.cat.some(function(rt){ return rt.freq===f && rt.aplica; }) || Object.keys(S.ov).some(function(k){ return S.ov[k]===1 && S.cat.some(function(rt){ return rt.freq===f && k.indexOf(rk(rt)+'|')===0; }); }); }));
+  if(fr.indexOf(S.freq)<0) S.freq='all';
+  var ar=areas(); if(S.area!=='all' && !ar.some(function(a){ return a.k===S.area; })) S.area='all';
+  return '<div class="seg" role="group" aria-label="Frecuencia">'+fr.map(function(f){ return '<button type="button" data-freq="'+f+'" aria-pressed="'+(S.freq===f)+'">'+(f==='all'?'Todas':PL[f])+'</button>'; }).join('')+'</div>'+
+    '<label class="vh" for="areaSel">Área</label><select id="areaSel"><option value="all">Todas las áreas</option>'+ar.map(function(a){ return '<option value="'+esc(a.k)+'"'+(S.area===a.k?' selected':'')+'>'+esc(a.name)+'</option>'; }).join('')+'</select>';
+}
+
+var R=null;
+function render(){
+  Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function(b){ b.setAttribute('aria-selected', String(b.dataset.view===S.view)); });
+  var has=S.acts.length>0;
+  $('fileBtn').textContent=has?'Cargar otro Excel':'Cargar Excel';
+  $('vCum').hidden=S.view!=='cum'||!has; $('vTen').hidden=S.view!=='ten'||!has; $('vAct').hidden=S.view!=='act'||!has; $('vPlan').hidden=S.view!=='plan';
+  $('empty').style.display=(!has && S.view!=='plan')?'flex':'none';
+  $('monthSel').hidden=!has || S.view==='ten' || S.view==='plan';
+  if(has){
+    var ld=lastData();
+    $('subtitle').textContent=[S.agency, S.acts.length+' acciones hasta el '+dLabel(ld)+' '+parts(ld).y, S.fileName].filter(Boolean).join(' · ');
+  }else $('subtitle').textContent='Carga el Excel de acciones de Safety para medir el cumplimiento de las reuniones.';
+  if(S.view==='plan'){ renderPlan(); return; }
+  if(!has) return;
+  var ym=monthSel();
+  if(S.view==='cum') renderCum(ym);
+  if(S.view==='ten') renderTen();
+  if(S.view==='act') renderAct(ym);
+}
+
+/* ---------- Cumplimiento del mes ---------- */
+function renderCum(ym){
+  R=computeMonth(ym.y, ym.m);
+  var T=R.T, mesTxt=MESES[R.m-1]+' de '+R.y, H=R.H, v='';
+  var shown=R.rows.filter(function(r){ return S.showAll || r.planned || r.raw>0; });
+  v+='<div class="sechead"><div><h2>Cumplimiento de rutinas · '+esc(mesTxt)+'</h2><p class="sub">Una reunión cumple cuando se subieron acciones de esa rutina en su fecha o en los días de tolerancia.</p></div><div class="legend">'+legend()+'</div></div>';
+  v+='<div class="ctrls">'+scopeCtrls()+'<label for="hastaIn" class="sub">Medir hasta <input type="date" id="hastaIn" value="'+isoD(H)+'"></label>'+
+    (S.hasta!=null?'<button type="button" class="quiet" id="hastaAuto">Usar el último día con datos</button>':'')+
+    '<button type="button" id="dlBtn">Descargar detalle en Excel</button></div>';
+  var facts='<span><strong>'+T.ok+'</strong> de '+T.opp+' reuniones con acciones</span>'+(T.opp-T.ok?'<span>'+(T.opp-T.ok)+' reuniones sin acciones</span>':'')+
+    (T.pend?'<span>'+T.pend+' reuniones después del '+dLabel(H)+', todavía sin medir</span>':'')+'<span>'+R.monthActs+' acciones creadas en el mes</span>';
+  v+='<section class="month"><div class="card hero"><span class="lbl">Cumplimiento del mes</span><div class="big">'+pct(T.p)+'</div>'+meter(T.p)+'<div>'+chip(T.p)+'</div>'+
+    '<div class="facts num">'+facts+'<span>Medido hasta el '+esc(dLong(H))+'</span></div></div>'+
+    '<div class="card">'+hbars('Por frecuencia', R.byF, {empty:'No hay reuniones planificadas en este mes.'})+'</div>'+
+    '<div class="card">'+hbars('Por responsable', R.byR, {empty:'No hay reuniones planificadas en este mes.'})+'</div></section>';
+
+  /* Calendario */
+  v+='<div class="sechead"><div><h2>Calendario de reuniones</h2><p class="sub">Toca un día para planificar o quitar una reunión, como poner o borrar el "1" del planificador. El número es la cantidad de acciones.</p></div>'+
+    '<label class="sub"><input type="checkbox" id="showAll"'+(S.showAll?' checked':'')+'> Mostrar rutinas sin plan ni acciones</label></div>';
+  v+='<section class="card"><div class="keys" style="margin-bottom:10px"><span><b class="dc ok">3</b>Cumplida</span><span><b class="dc fail">✕</b>Sin acciones</span><span><b class="dc pend">·</b>Planificada, por medir</span><span><b class="dc">2</b>Acciones sin reunión planificada</span><span><b class="dc ok ovr">1</b>Cambiada a mano</span></div>';
+  if(!shown.length) v+='<p class="sub">No hay rutinas con plan o acciones para este filtro.</p>';
+  else{
+    var c='<div class="scroll"><table class="cal"><thead><tr><th>Rutina</th>'+R.days.map(function(d){ var p=parts(d);
+      return '<th class="'+(p.wd>=5?'we':'')+(d>H?' fut':'')+'"><small>'+WD1[p.wd]+'</small>'+p.d+'</th>'; }).join('')+'</tr></thead><tbody>';
+    FREQS.forEach(function(f){
+      var g=shown.filter(function(r){ return r.rt.freq===f; }); if(!g.length) return;
+      var gr=R.byF.filter(function(x){ return x.name===f; })[0];
+      c+='<tr class="area"><td><div class="rh"><span>'+PL[f]+'</span><span class="tag s-'+status(gr?gr.roll.p:null)+'">'+(gr?pct(gr.roll.p):'—')+'</span></div></td><td colspan="'+R.days.length+'"></td></tr>';
+      g.forEach(function(r){
+        c+='<tr><td class="rn"><div class="rh"><span>'+esc(r.rt.name)+'<small>'+esc([r.rt.resp,r.rt.area].filter(Boolean).join(' · ')||(r.rt.aplica?'':'No aplica en el planificador'))+'</small></span>'+
+          (r.planned?'<span class="tag s-'+status(r.roll.p)+'" data-tip="'+esc(r.rt.name+'\n'+r.roll.ok+' de '+r.roll.opp+' reuniones con acciones'+(r.roll.pend?'\n'+r.roll.pend+' por medir':''))+'">'+pct(r.roll.p)+'</span>':'')+'</div></td>'+
+          r.cells.map(function(x){
+            var p=parts(x.d), cls='dc'+(x.st==='ok'?' ok':x.st==='fail'?' fail':x.st==='pend'?' pend':'')+(x.ov?' ovr':''), txt;
+            if(x.st==='ok') txt=x.cnt; else if(x.st==='fail') txt='✕'; else if(x.st==='pend') txt=x.raw||'·'; else txt=x.raw||'';
+            var tip=r.rt.name+'\n'+dLong(x.d)+'\n'+(x.plan?(x.st==='pend'?'Planificada · todavía por medir':x.st==='ok'?'Cumplida':'Planificada sin acciones'):'Sin reunión planificada')+
+              '\nAcciones ese día: '+x.raw+(x.plan&&+r.rt.tol?'\nAcciones contadas (+'+r.rt.tol+' d): '+x.cnt:'')+(x.ov?'\nCambiada a mano en el calendario':'')+'\nToca para '+(x.plan?'quitar':'planificar')+' la reunión';
+            return '<td class="'+(p.wd>=5?'we':'')+(x.d>H?' fut':'')+'"><button type="button" class="'+cls+'" data-ov="'+r.i+'|'+x.d+'" data-tip="'+esc(tip)+'" aria-label="'+esc(tip.replace(/\n/g,'. '))+'">'+txt+'</button></td>';
+          }).join('')+'</tr>';
+      });
+    });
+    v+=c+'</tbody></table></div>';
+  }
+  v+='</section>';
+
+  /* Semanas */
+  var W=R.weeks, pr=shown.filter(function(r){ return r.planned; });
+  v+='<div class="sechead"><div><h2>Cumplimiento por semana</h2><p class="sub">Semanas de lunes a domingo; cada reunión cuenta en la semana de su fecha.</p></div></div>';
+  var wt='<div class="scroll"><table class="rt"><thead><tr><th>Rutina</th>'+W.map(function(w){ return '<th class="c">S'+w.n+'<small>'+rangeLabel(w.start,w.end)+'</small></th>'; }).join('')+'<th class="r">Mes</th></tr></thead><tbody>';
+  FREQS.forEach(function(f){
+    var g=pr.filter(function(r){ return r.rt.freq===f; }); if(!g.length) return;
+    var gw={}; g.forEach(function(r){ Object.keys(r.wk).forEach(function(k){ var o=gw[k]||(gw[k]=roll()); o.opp+=r.wk[k].opp; o.ok+=r.wk[k].ok; o.pend+=r.wk[k].pend; }); });
+    var gr=R.byF.filter(function(x){ return x.name===f; })[0];
+    wt+='<tr class="area"><td>'+PL[f]+'</td>'+W.map(function(w){ return wkCell(gw[w.n]?fin(gw[w.n]):null, PL[f]+' · S'+w.n); }).join('')+'<td class="r">'+(gr?pct(gr.roll.p):'—')+'</td></tr>';
+    g.forEach(function(r){ wt+='<tr><td>'+esc(r.rt.name)+'</td>'+W.map(function(w){ return wkCell(r.wk[w.n], r.rt.name+' · S'+w.n); }).join('')+'<td class="r"><strong>'+pct(r.roll.p)+'</strong></td></tr>'; });
+  });
+  var tw={}; pr.forEach(function(r){ Object.keys(r.wk).forEach(function(k){ var o=tw[k]||(tw[k]=roll()); o.opp+=r.wk[k].opp; o.ok+=r.wk[k].ok; o.pend+=r.wk[k].pend; }); });
+  wt+='<tr class="area"><td>Total</td>'+W.map(function(w){ return wkCell(tw[w.n]?fin(tw[w.n]):null, 'Total · S'+w.n); }).join('')+'<td class="r">'+pct(T.p)+'</td></tr>';
+  v+='<section class="card">'+(pr.length?wt+'</tbody></table></div>':'<p class="sub">No hay reuniones planificadas para este filtro.</p>')+'</section>';
+
+  /* Notas */
+  var outK=Object.keys(R.out).sort(function(a,b){ return R.out[b]-R.out[a]; });
+  v+='<section class="notes"><div class="card"><span class="lbl">Cómo se calcula</span><ul>'+
+    '<li>Las reuniones salen del planificador: cada rutina que aplica tiene sus días (diarias '+esc(patternTxt(S.cat.filter(function(r){ return r.freq==='Diaria'&&r.aplica; })[0]||mkRoutine('','Diaria')))+'; semanales y mensuales según su día). Los cambios hechos en el calendario se guardan en este navegador.</li>'+
+    '<li>Una reunión se cumple si hay al menos una acción de esa rutina, por la "Fecha creación", el mismo día o dentro de la tolerancia: diaria +1 día, semanal y mensual +5 días. Es la misma regla del Excel REFERENCIA.</li>'+
+    '<li>Cumplimiento = reuniones con acciones ÷ reuniones planificadas hasta la fecha de medición. Las reuniones posteriores se ven punteadas y no cuentan.</li>'+
+    '<li>La meta es '+Math.round(S.meta*100)+' %. Se cambia en la pestaña Planificador.</li></ul></div>'+
+    '<div class="card"><span class="lbl">Acciones fuera del plan</span>'+(outK.length?'<div class="scroll" style="margin-top:6px"><table><thead><tr><th>Rutina</th><th class="r">Acciones</th></tr></thead><tbody>'+
+      outK.map(function(k){ return '<tr><td>'+esc(k)+'</td><td class="r">'+R.out[k]+'</td></tr>'; }).join('')+'</tbody></table></div><p class="sub" style="margin-top:8px">Estas rutinas no tienen reuniones planificadas este mes, así que sus acciones no suman al cumplimiento. Si deben medirse, márcalas como "Aplica" en el Planificador.</p>':
+      '<p class="sub" style="margin-top:8px">Todas las acciones del mes son de rutinas planificadas.</p>')+
+    '<div style="margin-top:auto;padding-top:10px"><button type="button" class="quiet" id="clearData">Quitar los datos cargados</button></div></div></section>';
+  $('vCum').innerHTML=v;
+}
+
+function download(){
+  if(!R) return;
+  var H=R.H, head=['Rutina','Frecuencia','Responsable','Área','Fecha','Día','Semana','Estado','Acciones ese día','Acciones contadas','Tolerancia (días)','Cambiada a mano'], rows=[head];
+  R.rows.forEach(function(r){ r.cells.forEach(function(c){ if(!c.plan) return; var p=parts(c.d);
+    rows.push([r.rt.name, r.rt.freq, r.rt.resp, r.rt.area, new Date(p.y,p.m-1,p.d), WDN[p.wd], isoWeek(c.d), c.st==='ok'?'Cumplida':c.st==='fail'?'Sin acciones':'Por medir', c.raw, c.st==='pend'?'':c.cnt, +r.rt.tol, c.ov?'Sí':'']); }); });
+  var res=[['Rutina','Frecuencia','Responsable','Área','Planificadas medidas','Con acciones','Por medir','Cumplimiento']];
+  R.rows.filter(function(r){ return r.planned; }).forEach(function(r){ res.push([r.rt.name,r.rt.freq,r.rt.resp,r.rt.area,r.roll.opp,r.roll.ok,r.roll.pend,r.roll.p==null?'':Math.round(r.roll.p*1000)/1000]); });
+  res.push(['Total','','','',R.T.opp,R.T.ok,R.T.pend,R.T.p==null?'':Math.round(R.T.p*1000)/1000]);
+  var wb=XLSX.utils.book_new(), s1=XLSX.utils.aoa_to_sheet(res), s2=XLSX.utils.aoa_to_sheet(rows,{cellDates:true});
+  s1['!cols']=[{wch:38},{wch:10},{wch:20},{wch:14},{wch:12},{wch:12},{wch:10},{wch:13}];
+  s2['!cols']=[{wch:38},{wch:10},{wch:20},{wch:14},{wch:11},{wch:10},{wch:8},{wch:13},{wch:10},{wch:10},{wch:10},{wch:10}];
+  for(var r=1;r<rows.length;r++){ var a=XLSX.utils.encode_cell({r:r,c:4}); if(s2[a]) s2[a].z='dd/mm/yyyy'; }
+  for(var q=1;q<res.length;q++){ var b=XLSX.utils.encode_cell({r:q,c:7}); if(s1[b]&&s1[b].t==='n') s1[b].z='0%'; }
+  XLSX.utils.book_append_sheet(wb,s1,'Resumen'); XLSX.utils.book_append_sheet(wb,s2,'Reuniones');
+  XLSX.writeFile(wb,'Cumplimiento rutinas '+MESES[R.m-1]+' '+R.y+' (hasta '+isoD(H)+').xlsx');
+}
+
+/* ---------- Tendencia ---------- */
+function renderTen(){
+  var ms=months(), H=hasta(), res=ms.map(function(k){ var p=k.split('-'); return computeMonth(+p[0],+p[1]); });
+  var v='<div class="sechead"><div><h2>Tendencia de cumplimiento</h2><p class="sub">Cada mes se mide con el planificador actual. Medido hasta el '+esc(dLong(H))+'.</p></div><div class="legend">'+legend()+'</div></div>';
+  v+='<div class="ctrls">'+scopeCtrls()+'</div>';
+  var ticks=[0,25,50,75,100];
+  v+='<section class="card chart"><span class="lbl">Cumplimiento por mes'+(S.freq!=='all'?' · '+PL[S.freq]:'')+'</span><div class="plot">'+
+    ticks.map(function(t){ return '<div class="grid" style="bottom:'+t+'%"><span>'+t+'</span></div>'; }).join('')+
+    '<div class="goal" style="bottom:'+(S.meta*100)+'%"><span>Meta '+Math.round(S.meta*100)+' %</span></div>'+
+    '<div class="cols">'+res.map(function(x){ var p=x.T.p, hh=(p||0)*100;
+      return '<div class="col s-'+status(p)+'" tabindex="0" data-tip="'+esc(MESES[x.m-1]+' '+x.y+'\nReuniones con acciones: '+x.T.ok+' de '+x.T.opp+(x.T.pend?'\nPor medir: '+x.T.pend:'')+'\nCumplimiento: '+pct(p)+'\nAcciones creadas: '+x.monthActs)+'"><b style="height:'+hh.toFixed(2)+'%"></b><em style="bottom:'+hh.toFixed(2)+'%">'+pct(p)+'</em></div>'; }).join('')+
+    '</div></div><div class="xlab">'+res.map(function(x){ return '<div><strong>'+MES3[x.m-1]+'</strong><small>'+x.T.ok+'/'+x.T.opp+'</small></div>'; }).join('')+'</div></section>';
+  /* Tabla rutina × mes */
+  var t='<div class="scroll"><table class="rt"><thead><tr><th>Rutina</th>'+res.map(function(x){ return '<th class="c">'+MES3[x.m-1]+'<small>'+x.y+'</small></th>'; }).join('')+'<th class="r">Acumulado</th></tr></thead><tbody>';
+  FREQS.forEach(function(f){
+    var names=[]; S.cat.forEach(function(rt,i){ if(rt.freq===f && inScope(rt) && res.some(function(x){ return x.rows.some(function(r){ return r.i===i && r.planned; }); })) names.push(i); });
+    if(!names.length) return;
+    var gm=res.map(function(x){ return x.byF.filter(function(b){ return b.name===f; })[0]; }), ga=roll();
+    gm.forEach(function(g){ if(g){ ga.opp+=g.roll.opp; ga.ok+=g.roll.ok; ga.pend+=g.roll.pend; } }); fin(ga);
+    t+='<tr class="area"><td>'+PL[f]+'</td>'+gm.map(function(g,j){ return wkCell(g?g.roll:null, PL[f]+' · '+MESES[res[j].m-1]); }).join('')+'<td class="r">'+pct(ga.p)+'</td></tr>';
+    names.forEach(function(i){
+      var acc=roll();
+      t+='<tr><td>'+esc(S.cat[i].name)+'<br><span class="extra">'+esc(S.cat[i].resp||'')+'</span></td>'+res.map(function(x){ var r=x.rows.filter(function(q){ return q.i===i; })[0];
+        if(r){ acc.opp+=r.roll.opp; acc.ok+=r.roll.ok; acc.pend+=r.roll.pend; }
+        return wkCell(r&&r.planned?r.roll:null, S.cat[i].name+' · '+MESES[x.m-1]); }).join('')+'<td class="r"><strong>'+pct(fin(acc).p)+'</strong></td></tr>';
+    });
+  });
+  var at=roll(); res.forEach(function(x){ at.opp+=x.T.opp; at.ok+=x.T.ok; at.pend+=x.T.pend; }); fin(at);
+  t+='<tr class="area"><td>Total</td>'+res.map(function(x){ return wkCell(x.T,'Total · '+MESES[x.m-1]); }).join('')+'<td class="r">'+pct(at.p)+'</td></tr></tbody></table></div>';
+  v+='<div class="sechead"><h2>Por rutina y mes</h2></div><section class="card">'+t+'</section>';
+  /* Acciones por mes y pilar */
+  var pil={}; S.acts.forEach(function(a){ var k=a.y+'-'+(a.m<10?'0':'')+a.m; (pil[a.pil||'Sin pilar']||(pil[a.pil||'Sin pilar']={}))[k]=((pil[a.pil||'Sin pilar']||{})[k]||0)+1; });
+  var pk=Object.keys(pil).sort(function(a,b){ return sum(pil[b])-sum(pil[a]); });
+  v+='<div class="sechead"><h2>Acciones creadas por mes y pilar</h2></div><section class="card"><div class="scroll"><table><thead><tr><th>Pilar</th>'+ms.map(function(k){ var p=k.split('-'); return '<th class="r">'+MES3[+p[1]-1]+'</th>'; }).join('')+'<th class="r">Total</th></tr></thead><tbody>'+
+    pk.map(function(p){ return '<tr><td>'+esc(p)+'</td>'+ms.map(function(k){ return '<td class="r">'+(pil[p][k]||'')+'</td>'; }).join('')+'<td class="r"><strong>'+sum(pil[p])+'</strong></td></tr>'; }).join('')+
+    '<tr class="area"><td>Total</td>'+ms.map(function(k){ return '<td class="r">'+pk.reduce(function(s,p){ return s+(pil[p][k]||0); },0)+'</td>'; }).join('')+'<td class="r">'+S.acts.length+'</td></tr></tbody></table></div></section>';
+  $('vTen').innerHTML=v;
+}
+function sum(o){ return Object.keys(o).reduce(function(s,k){ return s+o[k]; },0); }
+
+/* ---------- Acciones ---------- */
+function countBy(list,f,top){
+  var c={}; list.forEach(function(a){ var k=f(a)||'(vacío)'; c[k]=(c[k]||0)+1; });
+  var r=Object.keys(c).map(function(k){ return {name:k,n:c[k]}; }).sort(function(a,b){ return b.n-a.n || a.name.localeCompare(b.name,'es'); });
+  if(top && r.length>top){ var rest=r.slice(top).reduce(function(s,x){ return s+x.n; },0); r=r.slice(0,top); r.push({name:'Otros ('+(Object.keys(c).length-top)+')', n:rest, cls:'s-none'}); }
+  return r;
+}
+function renderAct(ym){
+  var today=todayDn(), mesTxt=MESES[ym.m-1]+' de '+ym.y;
+  var mon=S.acts.filter(function(a){ return a.y===ym.y && a.m===ym.m; });
+  var open=S.acts.filter(function(a){ return !isDone(a.est); });
+  var late=open.filter(function(a){ return a.comp!=null && a.comp<today; });
+  var done=mon.filter(function(a){ return isDone(a.est); }).length, owners={}; mon.forEach(function(a){ if(a.owner) owners[norm(a.owner)]=1; });
+  var v='<div class="sechead"><div><h2>Acciones · '+esc(mesTxt)+'</h2><p class="sub">Por fecha de creación. Las pendientes incluyen todos los meses.</p></div></div>';
+  v+='<section class="tiles">'+
+    tile('Creadas en el mes', mon.length)+
+    tile('Completadas', done, mon.length?Math.round(done/mon.length*100)+' % del mes':'')+
+    tile('Pendientes (todas)', open.length, open.filter(function(a){ return norm(a.est)==='in_progress'; }).length+' en progreso')+
+    tile('Vencidas', late.length, 'Fecha compromiso pasada', late.length?'crit':'')+
+    tile('Dueños con acciones', Object.keys(owners).length)+
+    tile('Rutinas con acciones', Object.keys(mon.reduce(function(o,a){ o[a.rk]=1; return o; },{})).length)+'</section>';
+  v+='<section class="two">'+
+    '<div class="card">'+cbars('Por pilar', countBy(mon,function(a){ return a.pil; }))+'</div>'+
+    '<div class="card">'+cbars('Por rutina', countBy(mon,function(a){ return a.rt; },10))+'</div>'+
+    '<div class="card">'+cbars('Por dueño', countBy(mon,function(a){ return a.owner; },10))+'</div>'+
+    '<div class="card">'+cbars('Por KPI', countBy(mon,function(a){ return a.kpi.replace(/_/g,' '); },10))+'</div>'+
+    '<div class="card">'+cbars('Por origen', countBy(mon,function(a){ return a.org; }))+'</div>'+
+    '<div class="card">'+cbars('Por herramienta de gestión', countBy(mon,function(a){ return a.tool||'Sin herramienta'; },8))+'</div></section>';
+
+  /* Pendientes */
+  open.sort(function(a,b){ return (a.comp==null?1e9:a.comp)-(b.comp==null?1e9:b.comp); });
+  v+='<div class="sechead"><div><h2>Acciones pendientes</h2><p class="sub">Abiertas o en progreso, de cualquier mes, ordenadas por fecha compromiso.</p></div></div>';
+  v+='<section class="card">'+(open.length?'<div class="scroll"><table class="acts"><thead><tr><th>Compromiso</th><th>Estatus</th><th>Rutina</th><th>Dueño</th><th>Descripción</th><th>Creada</th></tr></thead><tbody>'+
+    open.map(function(a){ var od=a.comp!=null&&a.comp<today?today-a.comp:0;
+      return '<tr><td class="nw">'+(a.comp!=null?dLabel(a.comp)+' '+parts(a.comp).y:'—')+(od?'<br><span class="tag s-crit">'+od+' d vencida</span>':'')+'</td><td class="nw">'+esc(estLabel(a.est))+'</td><td>'+esc(a.rt)+'<br><span class="extra">'+esc(a.pil)+'</span></td><td>'+esc(a.owner)+'</td><td class="desc">'+esc(a.desc)+'</td><td class="nw">'+dLabel(a.dn)+' '+a.y+'</td></tr>'; }).join('')+
+    '</tbody></table></div>':'<p class="sub">No hay acciones abiertas ni en progreso.</p>')+'</section>';
+
+  /* Lista del mes */
+  var pils=countBy(mon,function(a){ return a.pil; }).map(function(x){ return x.name; });
+  if(S.pil!=='all' && pils.indexOf(S.pil)<0) S.pil='all';
+  var q=norm(S.q), list=mon.filter(function(a){
+    if(S.pil!=='all' && (a.pil||'(vacío)')!==S.pil) return false;
+    if(S.est==='open' && isDone(a.est)) return false; if(S.est==='done' && !isDone(a.est)) return false;
+    return !q || norm([a.rt,a.owner,a.kpi,a.desc,a.inv,a.tool,a.id].join(' ')).indexOf(q)>=0;
+  }).sort(function(a,b){ return b.dn-a.dn || (a.hm<b.hm?1:-1); });
+  v+='<div class="sechead"><div><h2>Acciones del mes</h2><p class="sub" id="actCount">'+list.length+' de '+mon.length+' acciones</p></div><div class="tools">'+
+    '<label class="vh" for="actQ">Buscar</label><input type="search" id="actQ" placeholder="Buscar rutina, dueño, KPI o texto" value="'+esc(S.q)+'">'+
+    '<label class="vh" for="pilSel">Pilar</label><select id="pilSel"><option value="all">Todos los pilares</option>'+pils.map(function(p){ return '<option'+(S.pil===p?' selected':'')+'>'+esc(p)+'</option>'; }).join('')+'</select>'+
+    '<label class="vh" for="estSel">Estatus</label><select id="estSel"><option value="all">Todos los estatus</option><option value="open"'+(S.est==='open'?' selected':'')+'>Pendientes</option><option value="done"'+(S.est==='done'?' selected':'')+'>Completadas</option></select></div></div>';
+  v+='<section class="card" id="actList">'+actTable(list)+'</section>';
+  $('vAct').innerHTML=v;
+}
+function tile(l,n,sub,cls){ return '<div class="card tile"><span class="lbl">'+l+'</span><span class="v'+(cls?' '+cls:'')+'">'+n+'</span>'+(sub?'<span class="sub" style="font-size:12.5px">'+esc(sub)+'</span>':'')+'</div>'; }
+function actTable(list){
+  if(!list.length) return '<p class="sub">No hay acciones con este filtro.</p>';
+  var h='<div class="scroll"><table class="acts"><thead><tr><th>Fecha</th><th>Rutina</th><th>Dueño</th><th>KPI</th><th>Descripción</th><th>Estatus</th></tr></thead><tbody>'+
+    list.slice(0,S.lim).map(function(a){ return '<tr><td class="nw">'+dLabel(a.dn)+(a.hm?'<br><span class="extra">'+a.hm+'</span>':'')+'</td><td>'+esc(a.rt)+'<br><span class="extra">'+esc(a.pil)+(a.org&&a.org!=='ACTION_LOG'?' · '+esc(a.org):'')+'</span></td><td>'+esc(a.owner)+'</td><td>'+esc(a.kpi)+'</td><td class="desc">'+esc(a.desc)+'</td><td class="nw">'+esc(estLabel(a.est))+'</td></tr>'; }).join('')+'</tbody></table></div>';
+  if(list.length>S.lim) h+='<div style="margin-top:10px"><button type="button" id="moreActs">Ver '+Math.min(200,list.length-S.lim)+' más</button> <span class="sub">Mostrando '+S.lim+' de '+list.length+'</span></div>';
+  return h;
+}
+
+/* ---------- Planificador ---------- */
+function renderPlan(){
+  var ovN=Object.keys(S.ov).length, known={}; S.cat.forEach(function(rt){ known[rk(rt)]=1; });
+  var extra={}; S.acts.forEach(function(a){ if(!known[a.rk]) extra[a.rt]=(extra[a.rt]||0)+1; });
+  var v='<div class="sechead"><div><h2>Planificador de reuniones</h2><p class="sub">'+(S.planFile?'Cargado de "'+esc(S.planFile)+'". ':'Plan de REFERENCIA.xlsx. ')+'Para reemplazarlo, carga el Excel REFERENCIA con el botón "Cargar Excel". Los cambios se guardan en este navegador.</p></div>'+
+    '<button type="button" class="quiet" id="resetPlan">Restablecer el planificador original</button></div>';
+  v+='<section class="card rules"><label for="metaIn">Meta de cumplimiento <input type="number" id="metaIn" min="1" max="100" step="1" value="'+Math.round(S.meta*100)+'"> %</label>'+
+    '<span class="sub">'+(ovN?ovN+' días cambiados a mano en el calendario. <button type="button" class="quiet" id="clearOv">Quitar esos cambios</button>':'Sin días cambiados a mano en el calendario.')+'</span></section>';
+  var t='<div class="scroll"><table class="ptable"><thead><tr><th>Aplica</th><th style="min-width:250px">Rutina</th><th>Frecuencia</th><th style="min-width:150px">Responsable</th><th style="min-width:110px">Área</th><th>Días de reunión</th><th>Tolerancia<small>días después</small></th><th class="r">Acciones<small>en el archivo</small></th><th><span class="vh">Quitar</span></th></tr></thead><tbody>';
+  var cnt={}; S.acts.forEach(function(a){ cnt[a.rk]=(cnt[a.rk]||0)+1; });
+  FREQS.forEach(function(f){
+    S.cat.forEach(function(rt,i){
+      if(rt.freq!==f) return;
+      var d;
+      if(f==='Diaria') d='<span class="wds" role="group" aria-label="Días de '+esc(rt.name)+'">'+WD1.map(function(w,j){ return '<button type="button" data-wd="'+i+'|'+j+'" aria-pressed="'+(rt.wds.indexOf(j)>=0)+'" title="'+WDN[j]+'">'+w+'</button>'; }).join('')+'</span>';
+      else if(f==='Semanal') d='<select data-f="wd" data-i="'+i+'" aria-label="Día de '+esc(rt.name)+'">'+WDN.map(function(w,j){ return '<option value="'+j+'"'+(+rt.wd===j?' selected':'')+'>Cada '+w+'</option>'; }).join('')+'</select>';
+      else if(f==='Mensual') d='<label>Día <input type="number" min="1" max="31" data-f="dom" data-i="'+i+'" value="'+rt.dom+'" aria-label="Día del mes de '+esc(rt.name)+'"></label>';
+      else d='<span class="extra">Marca los días en el calendario</span>';
+      t+='<tr class="'+(rt.aplica?'':'off')+'"><td class="c"><input type="checkbox" data-f="aplica" data-i="'+i+'"'+(rt.aplica?' checked':'')+' aria-label="Aplica '+esc(rt.name)+'"></td>'+
+        '<td><input type="text" data-f="name" data-i="'+i+'" value="'+esc(rt.name)+'" aria-label="Nombre de la rutina"></td>'+
+        '<td><select data-f="freq" data-i="'+i+'" aria-label="Frecuencia">'+FREQS.map(function(x){ return '<option'+(x===f?' selected':'')+'>'+x+'</option>'; }).join('')+'</select></td>'+
+        '<td><input type="text" data-f="resp" data-i="'+i+'" value="'+esc(rt.resp)+'" aria-label="Responsable"></td>'+
+        '<td><input type="text" data-f="area" data-i="'+i+'" value="'+esc(rt.area)+'" aria-label="Área"></td>'+
+        '<td>'+d+'</td><td><input type="number" min="0" max="15" data-f="tol" data-i="'+i+'" value="'+rt.tol+'" aria-label="Tolerancia"></td>'+
+        '<td class="r">'+(cnt[rk(rt)]||'')+'</td><td><button type="button" class="rm" data-rm="'+i+'" aria-label="Quitar '+esc(rt.name)+'">×</button></td></tr>';
+    });
+  });
+  t+='</tbody></table></div>';
+  var ek=Object.keys(extra).sort(function(a,b){ return extra[b]-extra[a]; });
+  t+='<div class="ctrls" style="margin-top:12px"><label for="newRt">Agregar rutina</label><input type="text" id="newRt" list="rtList" placeholder="Nombre como aparece en Routina" style="min-width:280px">'+
+    '<datalist id="rtList">'+ek.map(function(k){ return '<option value="'+esc(k)+'">'; }).join('')+'</datalist><button type="button" id="addRt">Agregar</button></div>';
+  v+='<section class="card">'+t+'</section>';
+  if(ek.length) v+='<section class="card"><span class="lbl">Rutinas del archivo que no están en el planificador</span><p class="sub" style="margin-top:4px">Sus acciones no cuentan para el cumplimiento. Agrégalas si deben medirse.</p><div class="scroll" style="margin-top:8px"><table><thead><tr><th>Rutina</th><th class="r">Acciones</th><th></th></tr></thead><tbody>'+
+    ek.map(function(k){ return '<tr><td>'+esc(k)+'</td><td class="r">'+extra[k]+'</td><td class="r"><button type="button" data-addname="'+esc(k)+'">Agregar</button></td></tr>'; }).join('')+'</tbody></table></div></section>';
+  $('vPlan').innerHTML=v;
+}
+
+/* ---------- Eventos ---------- */
+document.addEventListener('click', function(e){
+  var t=e.target.closest('button'); if(!t) return;
+  if(t.closest('.tabs') && t.dataset.view){ S.view=t.dataset.view; save(); render(); return; }
+  if(t.dataset.freq){ S.freq=t.dataset.freq; save(); render(); return; }
+  if(t.dataset.ov){
+    var a=t.dataset.ov.split('|'), rt=S.cat[+a[0]], d=+a[1], k=rk(rt)+'|'+d, want=!isPlanned(rt,d);
+    if(want===basePlanned(rt,d)) delete S.ov[k]; else S.ov[k]=want?1:0;
+    save(); render(); var b=document.querySelector('[data-ov="'+a[0]+'|'+d+'"]'); if(b) b.focus(); return;
+  }
+  if(t.dataset.wd){ var w=t.dataset.wd.split('|'), r=S.cat[+w[0]], j=+w[1], ix=r.wds.indexOf(j); if(ix>=0) r.wds.splice(ix,1); else { r.wds.push(j); r.wds.sort(); } save(); render(); return; }
+  if(t.dataset.rm){ var rr=S.cat[+t.dataset.rm]; if(confirm('¿Quitar la rutina "'+rr.name+'" del planificador?')){ S.cat.splice(+t.dataset.rm,1); save(); render(); } return; }
+  if(t.dataset.addname!=null){ addRoutine(t.dataset.addname); return; }
+  switch(t.id){
+    case 'dlBtn': download(); break;
+    case 'hastaAuto': S.hasta=null; save(); render(); break;
+    case 'clearData': if(confirm('¿Quitar las acciones cargadas de este navegador? El planificador se conserva.')){ S.acts=[]; S.fileName=''; S.agency=''; S.month=null; S.hasta=null; save(); showInfo(''); render(); } break;
+    case 'resetPlan': if(confirm('¿Volver al planificador original de REFERENCIA? Se pierden los cambios del planificador y del calendario.')){ S.cat=defCat(); S.ov={}; S.planFile=''; save(); render(); } break;
+    case 'clearOv': S.ov={}; save(); render(); break;
+    case 'addRt': addRoutine($('newRt').value); break;
+    case 'moreActs': S.lim+=200; render(); break;
+  }
+});
+function addRoutine(name){
+  name=clean(name); if(!name) return;
+  if(S.cat.some(function(rt){ return rk(rt)===norm(name); })){ showMsg('La rutina "'+name+'" ya está en el planificador.'); return; }
+  showMsg(''); var f=/mensual/i.test(name)?'Mensual':/semanal/i.test(name)?'Semanal':/diari/i.test(name)?'Diaria':'Semanal';
+  S.cat.push(mkRoutine(name,f,'','',true)); save(); render();
+}
+document.addEventListener('change', function(e){
+  var t=e.target;
+  if(t.id==='monthSel'){ S.month=t.value; S.lim=100; save(); render(); return; }
+  if(t.id==='areaSel'){ S.area=t.value; save(); render(); return; }
+  if(t.id==='showAll'){ S.showAll=t.checked; save(); render(); return; }
+  if(t.id==='hastaIn'){ var d=fromIso(t.value); S.hasta=d; save(); render(); return; }
+  if(t.id==='pilSel'){ S.pil=t.value; S.lim=100; render(); return; }
+  if(t.id==='estSel'){ S.est=t.value; S.lim=100; render(); return; }
+  if(t.id==='metaIn'){ var m=+t.value; if(m>=1&&m<=100){ S.meta=m/100; save(); } render(); return; }
+  if(t.id==='fileIn'){ readFiles(t.files); t.value=''; return; }
+  if(t.dataset.f && t.dataset.i!=null){
+    var rt=S.cat[+t.dataset.i], f=t.dataset.f;
+    if(f==='aplica') rt.aplica=t.checked;
+    else if(f==='name'){ var nm=clean(t.value); if(nm){ var old=rk(rt); rt.name=nm; moveOv(old,rk(rt)); } }
+    else if(f==='freq'){ rt.freq=t.value; rt.tol=TOL[rt.freq]; }
+    else if(f==='wd') rt.wd=+t.value;
+    else if(f==='dom'){ var v=Math.round(+t.value); if(v>=1&&v<=31) rt.dom=v; }
+    else if(f==='tol'){ var tl=Math.round(+t.value); if(tl>=0&&tl<=15) rt.tol=tl; }
+    else rt[f]=clean(t.value);
+    save(); render();
+  }
+});
+function moveOv(a,b){ if(a===b) return; Object.keys(S.ov).forEach(function(k){ if(k.indexOf(a+'|')===0){ S.ov[b+k.slice(a.length)]=S.ov[k]; delete S.ov[k]; } }); }
+var qT=null;
+document.addEventListener('input', function(e){
+  if(e.target.id!=='actQ') return;
+  S.q=e.target.value; S.lim=100; clearTimeout(qT);
+  qT=setTimeout(function(){ var pos=e.target.selectionStart; render(); var i=$('actQ'); if(i){ i.focus(); try{ i.setSelectionRange(pos,pos); }catch(_){} } }, 200);
+});
+$('fileBtn').addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); $('fileIn').click(); } });
+var dragN=0;
+document.addEventListener('dragenter', function(e){ e.preventDefault(); dragN++; document.body.classList.add('dragging'); });
+document.addEventListener('dragleave', function(){ if(--dragN<=0){ dragN=0; document.body.classList.remove('dragging'); } });
+document.addEventListener('dragover', function(e){ e.preventDefault(); });
+document.addEventListener('drop', function(e){ e.preventDefault(); dragN=0; document.body.classList.remove('dragging'); readFiles(e.dataTransfer.files); });
+
+/* Tooltip */
+var tip=$('tip');
+function showTip(el,x,y){ tip.textContent=el.getAttribute('data-tip'); tip.hidden=false;
+  var w=tip.offsetWidth, h=tip.offsetHeight, L=Math.min(window.innerWidth-w-8, x+14), T=y+16; if(T+h>window.innerHeight-8) T=y-h-12; tip.style.left=Math.max(8,L)+'px'; tip.style.top=Math.max(8,T)+'px'; }
+document.addEventListener('mousemove', function(e){ var el=e.target.closest&&e.target.closest('[data-tip]'); if(el) showTip(el,e.clientX,e.clientY); else tip.hidden=true; });
+document.addEventListener('focusin', function(e){ var el=e.target.closest&&e.target.closest('[data-tip]'); if(el){ var r=el.getBoundingClientRect(); showTip(el,r.left,r.bottom-8); } else tip.hidden=true; });
+document.addEventListener('scroll', function(){ tip.hidden=true; }, true);
+
+load(); render();
+})();
+</script>
