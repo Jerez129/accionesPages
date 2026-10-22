@@ -274,6 +274,7 @@ td.hm.zero span{background:color-mix(in srgb,var(--crit) 14%,transparent);color:
     <div class="ctrls">
       <label class="vh" for="monthSel">Mes</label>
       <select id="monthSel" hidden></select>
+      <button type="button" class="quiet" id="syncBtn" title="Cambiar la clave de edición"><span id="sync">Base de datos…</span></button>
       <label class="btn pri" for="fileIn" id="fileBtn" tabindex="0">Cargar Excel</label>
       <input class="vh" type="file" id="fileIn" accept=".xlsx,.xls,.csv" multiple tabindex="-1">
     </div>
@@ -412,6 +413,7 @@ function save(){
   try{ localStorage.setItem(KEY, JSON.stringify({cat:S.cat, catV:CAT_V, cals:S.cals, calKey:S.calKey, kpis:S.kpis, kedOpen:S.kedOpen, meta:S.meta, fileName:S.fileName, agency:S.agency, month:S.month, view:S.view,
     freq:S.freq, area:S.area, hasta:S.hasta, showAll:S.showAll, showOff:S.showOff, defOpen:S.defOpen,
     acts:S.acts.map(function(a){ return [a.id,a.rt,a.dn,a.hm,a.owner,a.pos,a.pil,a.kpi,a.tool,a.desc,a.inv,a.est,a.comp,a.org]; })})); }catch(_){}
+  syncRemote();
 }
 function load(){
   try{
@@ -439,9 +441,111 @@ function load(){
     S.acts=(o.acts||[]).map(function(a){ return mkAct(a[0],a[1],a[2],a[3],a[4],a[5],a[6],a[7],a[8],a[9],a[10],a[11],a[12],a[13]); });
   }catch(_){}
 }
+/* k: clave única de la acción. El folio se repite a veces entre acciones distintas, así que también entran
+   rutina, fecha y hora, dueño y descripción. Es la misma clave de la base de datos. */
+function actKey(id,rt,d,hm,owner,desc){ return [id||'',norm(rt),d,hm||'',norm(owner),norm(desc)].join('|'); }
 function mkAct(id,rt,d,hm,owner,pos,pil,kpi,tool,desc,inv,est,comp,org){
   var p=parts(d);
-  return {id:id,rt:rt,rk:norm(rt),dn:d,y:p.y,m:p.m,hm:hm,owner:owner,pos:pos,pil:pil,kpi:kpi,tool:tool,desc:desc,inv:inv,est:est,comp:comp,org:org};
+  return {k:actKey(id,rt,d,hm,owner,desc),id:id,rt:rt,rk:norm(rt),dn:d,y:p.y,m:p.m,hm:hm,owner:owner,pos:pos,pil:pil,kpi:kpi,tool:tool,desc:desc,inv:inv,est:est,comp:comp,org:org};
+}
+
+/* ---------- Base de datos (Cloudflare D1) ----------
+   Leer es libre. Guardar pide la clave de edición una vez y el navegador la recuerda.
+   El navegador guarda una copia por si no hay conexión; la base es la que manda. */
+/* En pruebas locales se puede apuntar a otro Worker con ?api=http://localhost:8787 */
+var API = (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).get('api')) || 'https://acciones-api.japf20092004.workers.dev';
+var KEYK = 'acciones-clave', DB = {on:false, ready:false, snap:{}, noKey:false, pend:null};
+function getClave(){ try{ return localStorage.getItem(KEYK)||''; }catch(_){ return ''; } }
+function setClave(k){ try{ if(k) localStorage.setItem(KEYK,k); else localStorage.removeItem(KEYK); }catch(_){} }
+function setSync(st, txt){
+  var el=$('sync'); if(!el) return;
+  el.textContent = txt || {ok:'Base de datos: guardado', saving:'Guardando en la base…', load:'Leyendo la base…', off:'Sin conexión con la base', err:'No se pudo guardar'}[st] || '';
+  el.style.color = st==='err'||st==='off' ? 'var(--crit)' : '';
+}
+function api(method, path, body){
+  var h={'Content-Type':'application/json'}; if(method!=='GET') h['X-Clave']=getClave();
+  return fetch(API+path, {method:method, headers:h, body:body===undefined?undefined:JSON.stringify(body)})
+    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(d){ if(!r.ok){ var e=new Error(d.error||('Error '+r.status)); e.status=r.status; throw e; } return d; }); });
+}
+var askP=null;
+/* Si se cancela o falla la clave, no se vuelve a pedir hasta tocar el botón de la base en el encabezado. */
+function askKey(){
+  if(DB.noKey) return Promise.resolve(false);
+  if(!askP) askP=new Promise(function(res){ setTimeout(function(){ var k=prompt('Para guardar en la base de datos, escribe la clave de edición:'); askP=null; if(k&&k.trim()){ setClave(k.trim()); res(true); } else { DB.noKey=true; res(false); } }, 0); });
+  return askP;
+}
+/* Escribe en la base; si falta la clave la pide una vez y reintenta. */
+function write(method, path, body){
+  setSync('saving');
+  var fresh=!getClave();
+  return (fresh ? askKey() : Promise.resolve(true)).then(function(){ return api(method, path, body); }).catch(function(e){
+    if(e.status!==401 || fresh) throw e;
+    setClave('');
+    return askKey().then(function(ok){ if(!ok) throw e; return api(method, path, body); });
+  }).then(function(d){ setSync('ok'); return d; })
+    .catch(function(e){ if(e.status===401){ setClave(''); DB.noKey=true; } setSync('err', e.status===401 ? 'No se guardó: falta la clave (toca aquí para escribirla)' : 'No se pudo guardar en la base'); throw e; });
+}
+function actRow(a){ return {k:a.k, fid:a.id, rt:a.rt, dn:a.dn, hm:a.hm, owner:a.owner, pos:a.pos, pil:a.pil, kpi:a.kpi, tool:a.tool, descr:a.desc, inv:a.inv, est:a.est, comp:a.comp, org:a.org}; }
+function cfgNow(){ return {cat:S.cat, catV:CAT_V, kpis:S.kpis, meta:S.meta, fileName:S.fileName, agency:S.agency}; }
+/* Sube las acciones en tandas de 400. Las que ya estaban se actualizan (estatus, fecha compromiso…). */
+function pushActs(list, agency){
+  var rows=list.map(actRow), added=0, i=0;
+  function next(){ if(i>=rows.length) return Promise.resolve(added); var part=rows.slice(i,i+400); i+=400;
+    return write('POST','/api/acts',{acts:part, agency:agency}).then(function(d){ added+=d.added||0; return next(); }); }
+  return next();
+}
+/* Sube un archivo de acciones; si no se pudo (por ejemplo, sin clave), queda pendiente para reintentar. */
+function saveActs(list, agency, pre){
+  return pushActs(list, agency).then(function(n){ DB.pend=null;
+    var rest=list.length-n;
+    showInfo(((pre||'')+' En la base: '+n+' acciones nuevas'+(rest>0?'; '+rest+' ya estaban y se actualizaron (estatus y fechas)':'')+'.').trim()); return pullRemote(); })
+    .catch(function(){ DB.pend={list:list, agency:agency}; });
+}
+/* Compara con lo último guardado y sube solo lo que cambió (calendarios y ajustes). */
+var syncT=null;
+function syncRemote(){
+  if(!DB.ready) return;
+  clearTimeout(syncT);
+  syncT=setTimeout(function(){ syncT=null; doSync().catch(function(){}); }, 700);
+}
+function doSync(){
+  clearTimeout(syncT); syncT=null;
+  if(!DB.ready) return Promise.resolve();
+  var jobs=[], seen={};
+  Object.keys(S.cals).forEach(function(k){ var j=JSON.stringify(S.cals[k]); seen[k]=1;
+    if(DB.snap['c:'+k]!==j) jobs.push(write('PUT','/api/cals/'+k,S.cals[k]).then(function(){ DB.snap['c:'+k]=j; })); });
+  Object.keys(DB.snap).forEach(function(s){ if(s.indexOf('c:')===0 && !seen[s.slice(2)]) jobs.push(write('DELETE','/api/cals/'+s.slice(2)).then(function(){ delete DB.snap[s]; })); });
+  var cf=JSON.stringify(cfgNow()); if(DB.snap.cfg!==cf) jobs.push(write('PUT','/api/config/ajustes',cfgNow()).then(function(){ DB.snap.cfg=cf; }));
+  return Promise.all(jobs);
+}
+function snapshot(){ DB.snap={cfg:JSON.stringify(cfgNow())}; Object.keys(S.cals).forEach(function(k){ DB.snap['c:'+k]=JSON.stringify(S.cals[k]); }); }
+/* Trae todo de la base y reemplaza la copia del navegador. */
+function pullRemote(){
+  /* Si algo no se pudo guardar (por ejemplo, sin clave), se conserva lo del navegador y solo se actualizan las acciones. */
+  var synced=true, pending=DB.ready ? doSync().catch(function(){ synced=false; }) : Promise.resolve();
+  return pending.then(function(){ setSync('load'); return api('GET','/api/state'); }).then(function(d){
+    var empty=!d.acts.length && !Object.keys(d.cals).length && !d.config.ajustes;
+    var local=S.acts.length || Object.keys(S.cals).length;
+    if(empty && local && !DB.ready && confirm('La base de datos está vacía. ¿Subir lo que tienes en este navegador (acciones, calendarios y ajustes)?')){
+      DB.ready=true; DB.snap={};
+      return pushActs(S.acts, S.agency).then(function(){ return doSync(); }).then(function(){ return pullRemote(); })
+        .catch(function(){ DB.ready=false; });
+    }
+    if(empty && local){ setSync('off','Base vacía: trabajando solo en este navegador'); return; }
+    S.acts=d.acts.map(function(r){ return mkAct(r.fid, r.rt, r.dn, r.hm, r.owner, r.pos, r.pil, r.kpi, r.tool, r.descr, r.inv, r.est, r.comp, r.org); });
+    if(!synced){ save(); render(); setSync('err','Hay cambios sin guardar en la base'); return; }
+    S.cals=d.cals||{};
+    var c=d.config.ajustes;
+    if(c){
+      if(Array.isArray(c.cat) && c.cat.length){ S.cat=c.cat.filter(function(r){ return r && r.name; }).map(function(r){ var b=mkRoutine(r.name,r.freq,r.resp,r.area,r.aplica); return Object.assign(b,r); }); upgradeCat(+c.catV||1); }
+      if(Array.isArray(c.kpis) && c.kpis.length) S.kpis=c.kpis.filter(function(g){ return g && g.name && Array.isArray(g.codes); });
+      if(typeof c.meta==='number' && c.meta>0 && c.meta<=1) S.meta=c.meta;
+      S.fileName=c.fileName||S.fileName; S.agency=c.agency||S.agency;
+    }
+    IDX=null; R=null; DB.on=true; DB.ready=true; snapshot();
+    setSync('ok', 'Base de datos: conectada');
+    save(); render();
+  }).catch(function(){ DB.on=false; setSync('off'); });
 }
 
 /* ---------- Lectura de los Excel ---------- */
@@ -483,7 +587,7 @@ function parseActs(f){
     if(!rt && !fd) continue;
     if(!fd){ bad++; continue; }
     /* El folio se repite a veces entre acciones distintas: solo es duplicado si también coinciden fecha, hora y descripción. */
-    var id=g(row,cId), key=[id,norm(rt),fd.dn,fd.hm,norm(g(row,cO)),norm(g(row,cD))].join('|');
+    var id=g(row,cId), key=actKey(id,rt,fd.dn,fd.hm,g(row,cO),g(row,cD));
     if(seen[key]) continue; seen[key]=1;
     var cp=parseDate(row[cC]);
     out.push(mkAct(id, rt||'(sin rutina)', fd.dn, fd.hm, g(row,cO), g(row,cP), g(row,cPi), g(row,cK), g(row,cT), g(row,cD), g(row,cI), g(row,cE), cp?cp.dn:null, g(row,cOr)));
@@ -571,6 +675,7 @@ function readFile(file){
         var a=findActs(all);
         if(!a) throw new Error('No reconocí "'+file.name+'". Las acciones deben traer las columnas "Routina", "Fecha creación" y "Estatus"; el planificador, las columnas "Routina", "Frecuencia", "Aplica" y "Fecha".');
         var out=parseActs(a); S.acts=out.acts; S.fileName=file.name; S.agency=out.agency; S.month=null; S.hasta=null; S.lim=100;
+        newActs=out.acts; newAgency=out.agency;
         infos.push('Se cargaron '+out.acts.length+' acciones de "'+file.name+'".');
         if(out.bad) msgs.push('Se omitieron '+out.bad+' filas sin fecha de creación válida.');
         res(msgs.join(' '));
@@ -581,10 +686,14 @@ function readFile(file){
 }
 function readFiles(list){
   var files=Array.prototype.slice.call(list||[]); if(!files.length) return;
-  var msgs=[]; infos=[]; gotPlan=false;
+  var msgs=[]; infos=[]; gotPlan=false; newActs=[]; newAgency='';
   files.reduce(function(p,f){ return p.then(function(){ return readFile(f); }).then(function(m){ if(m) msgs.push(m); }); }, Promise.resolve())
-    .then(function(){ showMsg(msgs.join(' ')); showInfo(infos.join(' ')); if(gotPlan) S.view='plan'; save(); render(); });
+    .then(function(){ showMsg(msgs.join(' ')); showInfo(infos.join(' ')); if(gotPlan) S.view='plan'; save(); render();
+      /* Con base: se suben las acciones del archivo (las que ya estaban se actualizan) y se vuelve a leer todo,
+         así quedan juntas las de archivos anteriores. */
+      if(DB.ready && newActs.length) saveActs(newActs, newAgency, infos.join(' ')); });
 }
+var newActs=[], newAgency='';
 function showMsg(t){ var m=$('msg'); m.textContent=t||''; m.hidden=!t; }
 function showInfo(t){ var m=$('info'); m.textContent=t||''; m.hidden=!t; }
 
@@ -1272,7 +1381,9 @@ document.addEventListener('click', function(e){
     case 'goCal': S.calKey=S.month; S.view='plan'; save(); render(); window.scrollTo(0,0); break;
     case 'dlBtn': download(); break;
     case 'hastaAuto': S.hasta=null; save(); render(); break;
-    case 'clearData': if(confirm('¿Quitar las acciones cargadas de este navegador? Los calendarios se conservan.')){ S.acts=[]; S.fileName=''; S.agency=''; S.month=null; S.hasta=null; save(); showInfo(''); render(); } break;
+    case 'clearData':
+      if(DB.ready){ if(confirm('Esto borra todas las acciones de la base de datos, para todas las personas que usan la página. Los calendarios se conservan. ¿Continuar?')) write('DELETE','/api/acts').then(pullRemote).catch(function(){}); break; }
+      if(confirm('¿Quitar las acciones cargadas de este navegador? Los calendarios se conservan.')){ S.acts=[]; S.fileName=''; S.agency=''; S.month=null; S.hasta=null; save(); showInfo(''); render(); } break;
     case 'resetPlan': if(confirm('¿Volver a la lista de rutinas y días por defecto de REFERENCIA? Los calendarios guardados no cambian.')){ S.cat=defCat(); save(); render(); } break;
     case 'addRt': addRoutine($('newRt').value); break;
     case 'moreActs': S.lim+=200; render(); break;
@@ -1348,6 +1459,10 @@ document.addEventListener('mousemove', function(e){ var el=e.target.closest&&e.t
 document.addEventListener('focusin', function(e){ var el=e.target.closest&&e.target.closest('[data-tip]'); if(el){ var r=el.getBoundingClientRect(); showTip(el,r.left,r.bottom-8); } else tip.hidden=true; });
 document.addEventListener('scroll', function(){ tip.hidden=true; }, true);
 
-load(); if(!S.kpis) S.kpis=defKpis(); render();
+load(); if(!S.kpis) S.kpis=defKpis(); render(); pullRemote();
+$('syncBtn').addEventListener('click', function(e){ e.stopPropagation();
+  var k=prompt('Clave de edición para guardar en la base (déjala vacía para olvidarla en este navegador):', ''); if(k===null) return;
+  setClave(k.trim()); DB.noKey=false; setSync('ok', k.trim()?'Clave guardada en este navegador':'Clave olvidada');
+  if(DB.ready){ syncRemote(); if(DB.pend && getClave()) saveActs(DB.pend.list, DB.pend.agency); } else pullRemote(); });
 })();
 </script>
