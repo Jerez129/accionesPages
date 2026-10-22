@@ -157,7 +157,7 @@ td.wk.s-none span{--cellbg:transparent;color:var(--muted)}
 .col{position:relative;flex:1;height:100%;display:flex;justify-content:center;align-items:flex-end;cursor:default}
 .col b{display:block;width:28px;background:var(--st);border-radius:4px 4px 0 0;min-height:1px}
 .col:hover b,.col:focus-visible b{filter:brightness(1.15)}
-.col em{position:absolute;left:0;right:0;text-align:center;font-style:normal;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;padding-bottom:3px}
+.col em{position:absolute;left:0;right:0;text-align:center;font-style:normal;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;padding-bottom:3px;white-space:nowrap}
 .xlab{display:flex;justify-content:space-around;margin-left:34px}
 .xlab div{flex:1;text-align:center;min-width:0}
 .xlab strong{display:block;font-family:var(--font-label);font-size:13px}
@@ -261,6 +261,8 @@ td.hm.zero span{background:color-mix(in srgb,var(--crit) 14%,transparent);color:
   .hrow .hl{grid-column:1/-1}
   .two{grid-template-columns:minmax(0,1fr)}
   .tools input[type=search]{width:100%}
+  .col b{width:16px}
+  .col em{font-size:10.5px}
 }
 </style>
 
@@ -294,7 +296,7 @@ td.hm.zero span{background:color-mix(in srgb,var(--crit) 14%,transparent);color:
   <section id="empty" style="display:flex;flex-direction:column;gap:22px">
     <div class="drop" id="drop">
       <h2>Arrastra aquí el Excel de acciones</h2>
-      <p class="sub">Es la descarga del tablero de acciones (action log) con las columnas Routina, Fecha creación, Estatus y Fecha compromiso. Las acciones se guardan en la base de datos del equipo (pide la clave de edición la primera vez) y se suman a las que ya estaban. También puedes soltar aquí el Excel REFERENCIA para cargar el calendario de reuniones.</p>
+      <p class="sub">Es la descarga del tablero de acciones (action log) con las columnas Routina, Fecha creación, Estatus y Fecha compromiso. Las acciones se guardan en la base de datos del equipo y se suman a las que ya estaban. También puedes soltar aquí el Excel REFERENCIA para cargar el calendario de reuniones.</p>
       <label class="btn pri" for="fileIn">Elegir archivo</label>
     </div>
   </section>
@@ -450,7 +452,7 @@ function mkAct(id,rt,d,hm,owner,pos,pil,kpi,tool,desc,inv,est,comp,org){
 }
 
 /* ---------- Base de datos (Cloudflare D1) ----------
-   Leer es libre. Guardar pide la clave de edición una vez y el navegador la recuerda.
+   Leer y guardar son libres. Si algún día se configura la clave en el Worker (EDIT_KEY), la página la pide una vez y el navegador la recuerda.
    El navegador guarda una copia por si no hay conexión; la base es la que manda. */
 /* En pruebas locales se puede apuntar a otro Worker con ?api=http://localhost:8787 */
 var API = (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).get('api')) || 'https://acciones-api.japf20092004.workers.dev';
@@ -474,12 +476,11 @@ function askKey(){
   if(!askP) askP=new Promise(function(res){ setTimeout(function(){ var k=prompt('Para guardar en la base de datos, escribe la clave de edición:'); askP=null; if(k&&k.trim()){ setClave(k.trim()); res(true); } else { DB.noKey=true; res(false); } }, 0); });
   return askP;
 }
-/* Escribe en la base; si falta la clave la pide una vez y reintenta. */
+/* Escribe en la base. Solo si la base tiene clave (responde 401) la pide una vez y reintenta. */
 function write(method, path, body){
   setSync('saving');
-  var fresh=!getClave();
-  return (fresh ? askKey() : Promise.resolve(true)).then(function(){ return api(method, path, body); }).catch(function(e){
-    if(e.status!==401 || fresh) throw e;
+  return api(method, path, body).catch(function(e){
+    if(e.status!==401) throw e;
     setClave('');
     return askKey().then(function(ok){ if(!ok) throw e; return api(method, path, body); });
   }).then(function(d){ setSync('ok'); return d; })
@@ -851,9 +852,11 @@ function wkCell(R,label){
 function legend(){ return chip('good','En meta: '+Math.round(S.meta*100)+' % o más')+chip('warn','Cerca: desde '+Math.round(warnAt()*100)+' %')+chip('crit','Bajo: menos de '+Math.round(warnAt()*100)+' %'); }
 function monthSel(){
   var ms=months(); if(!ms.length) return null;
-  if(!S.month||ms.indexOf(S.month)<0) S.month=ms[ms.length-1];
-  $('monthSel').innerHTML=ms.map(function(k){ var p=k.split('-'); return '<option value="'+k+'"'+(k===S.month?' selected':'')+'>'+MESES[+p[1]-1]+' '+p[0]+'</option>'; }).join('');
-  var p=S.month.split('-'); return {y:+p[0], m:+p[1]};
+  if(!S.month||(S.month!=='all' && ms.indexOf(S.month)<0)) S.month=ms[ms.length-1];
+  $('monthSel').innerHTML='<option value="all"'+(S.month==='all'?' selected':'')+'>Todos los meses</option>'+
+    ms.map(function(k){ var p=k.split('-'); return '<option value="'+k+'"'+(k===S.month?' selected':'')+'>'+MESES[+p[1]-1]+' '+p[0]+'</option>'; }).join('');
+  /* Con "Todos los meses", y y m son el último mes con datos (lo usan las vistas que miden un solo mes). */
+  var p=(S.month==='all'?ms[ms.length-1]:S.month).split('-'); return {y:+p[0], m:+p[1], all:S.month==='all'};
 }
 function areas(){ var s={}; S.cat.forEach(function(rt){ if(rt.area) s[norm(rt.area)]=rt.area; }); return Object.keys(s).sort().map(function(k){ return {k:k, name:s[k]}; }); }
 function scopeCtrls(){
@@ -865,7 +868,7 @@ function scopeCtrls(){
     '<label class="vh" for="areaSel">Área</label><select id="areaSel"><option value="all">Todas las áreas</option>'+ar.map(function(a){ return '<option value="'+esc(a.k)+'"'+(S.area===a.k?' selected':'')+'>'+esc(a.name)+'</option>'; }).join('')+'</select>';
 }
 
-var R=null;
+var R=null, RR=null;   /* RR: meses que se están viendo (uno, o todos) */
 function render(){
   Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function(b){ b.setAttribute('aria-selected', String(b.dataset.view===S.view)); });
   var has=S.acts.length>0;
@@ -887,8 +890,34 @@ function render(){
 }
 
 /* ---------- Cumplimiento del mes ---------- */
+function aggRolls(res, key){
+  var o={}; res.forEach(function(x){ x[key].forEach(function(b){ var r=o[b.name]||(o[b.name]=roll()); r.opp+=b.roll.opp; r.ok+=b.roll.ok; r.pend+=b.roll.pend; }); });
+  return Object.keys(o).map(function(k){ return {name:k, roll:fin(o[k])}; });
+}
+/* Todos los meses: adherencia acumulada y adherencia de cada mes, en total y por rutina. */
+function renderCumAll(){
+  var ms=months(), H=hasta(), res=ms.map(function(k){ var p=kparts(k); return computeMonth(p.y,p.m); }), T=roll(), acts=0;
+  res.forEach(function(x){ T.opp+=x.T.opp; T.ok+=x.T.ok; T.pend+=x.T.pend; acts+=x.monthActs; }); fin(T);
+  RR=res;
+  var byF=aggRolls(res,'byF').sort(function(a,b){ return FREQS.indexOf(a.name)-FREQS.indexOf(b.name); });
+  var byR=aggRolls(res,'byR').sort(function(a,b){ return (b.roll.p==null?-1:b.roll.p)-(a.roll.p==null?-1:a.roll.p) || a.name.localeCompare(b.name,'es'); });
+  var rango=mesLabel(ms[0])+' a '+mesLabel(ms[ms.length-1]), v='';
+  v+='<div class="sechead"><div><h2>Cumplimiento de rutinas · todos los meses</h2><p class="sub">'+esc(rango.charAt(0).toUpperCase()+rango.slice(1))+'. Cada mes se mide con su calendario de reuniones.</p></div><div class="legend">'+legend()+'</div></div>';
+  v+='<div class="ctrls">'+scopeCtrls()+'<label for="hastaIn" class="sub">Medir hasta <input type="date" id="hastaIn" value="'+isoD(H)+'"></label>'+
+    (S.hasta!=null?'<button type="button" class="quiet" id="hastaAuto">Usar el último día con datos</button>':'')+
+    '<button type="button" id="dlBtn">Descargar detalle en Excel</button></div>';
+  v+='<section class="month"><div class="card hero"><span class="lbl">Cumplimiento acumulado</span><div class="big">'+pct(T.p)+'</div>'+meter(T.p)+'<div>'+chip(T.p)+'</div>'+
+    '<div class="facts num"><span><strong>'+T.ok+'</strong> de '+T.opp+' reuniones con acciones</span>'+(T.opp-T.ok?'<span>'+(T.opp-T.ok)+' reuniones sin acciones</span>':'')+
+    (T.pend?'<span>'+T.pend+' reuniones todavía por medir</span>':'')+'<span>'+acts+' acciones creadas en '+ms.length+' meses</span><span>Medido hasta el '+esc(dLong(H))+'</span></div></div>'+
+    '<div class="card">'+hbars('Por frecuencia', byF, {empty:'No hay reuniones planificadas.'})+'</div>'+
+    '<div class="card">'+hbars('Por responsable', byR, {empty:'No hay reuniones planificadas.'})+'</div></section>';
+  v+=trendBlocks(res, ms);
+  v+='<p class="sub">Para ver el calendario de un mes, elígelo arriba en el selector de mes.</p>';
+  $('vCum').innerHTML=v;
+}
 function renderCum(ym){
-  R=computeMonth(ym.y, ym.m);
+  if(ym.all){ renderCumAll(); return; }
+  R=computeMonth(ym.y, ym.m); RR=[R];
   var T=R.T, mesTxt=MESES[R.m-1]+' de '+R.y, H=R.H, v='';
   var shown=R.rows.filter(function(r){ return S.showAll || r.planned || r.raw>0; });
   v+='<div class="sechead"><div><h2>Cumplimiento de rutinas · '+esc(mesTxt)+'</h2><p class="sub">Una reunión cumple cuando se subieron acciones de esa rutina dentro de su plazo: diaria 2 días, semanal 6 días, mensual todo el mes.</p></div><div class="legend">'+legend()+'</div></div>';
@@ -962,21 +991,28 @@ function renderCum(ym){
   $('vCum').innerHTML=v;
 }
 
+/* Detalle en Excel del mes elegido, o de todos los meses (una fila por mes y rutina en el resumen). */
 function download(){
-  if(!R) return;
-  var H=R.H, head=['Rutina','Frecuencia','Responsable','Área','Fecha','Día','Semana','Estado','Acciones ese día','Acciones contadas','Plazo para subir acciones'], rows=[head];
-  R.rows.forEach(function(r){ r.cells.forEach(function(c){ if(!c.plan) return; var p=parts(c.d);
-    rows.push([r.rt.name, r.rt.freq, r.rt.resp, r.rt.area, new Date(p.y,p.m-1,p.d), WDN[p.wd], isoWeek(c.d), c.st==='ok'?'Cumplida':c.st==='fail'?'Sin acciones':'Por medir', c.raw, c.cnt, windowTxt(r.rt,c.d)]); }); });
-  var res=[['Rutina','Frecuencia','Responsable','Área','Planificadas medidas','Con acciones','Por medir','Cumplimiento']];
-  R.rows.filter(function(r){ return r.planned; }).forEach(function(r){ res.push([r.rt.name,r.rt.freq,r.rt.resp,r.rt.area,r.roll.opp,r.roll.ok,r.roll.pend,r.roll.p==null?'':Math.round(r.roll.p*1000)/1000]); });
-  res.push(['Total','','','',R.T.opp,R.T.ok,R.T.pend,R.T.p==null?'':Math.round(R.T.p*1000)/1000]);
+  if(!RR || !RR.length) return;
+  var H=RR[0].H, head=['Mes','Rutina','Frecuencia','Responsable','Área','Fecha','Día','Semana','Estado','Acciones ese día','Acciones contadas','Plazo para subir acciones'], rows=[head];
+  var res=[['Mes','Rutina','Frecuencia','Responsable','Área','Planificadas medidas','Con acciones','Por medir','Cumplimiento']], T=roll();
+  function pr(x){ return x==null?'':Math.round(x*1000)/1000; }
+  RR.forEach(function(R){
+    var mes=mesLabel(R.key);
+    R.rows.forEach(function(r){ r.cells.forEach(function(c){ if(!c.plan) return; var p=parts(c.d);
+      rows.push([mes, r.rt.name, r.rt.freq, r.rt.resp, r.rt.area, new Date(p.y,p.m-1,p.d), WDN[p.wd], isoWeek(c.d), c.st==='ok'?'Cumplida':c.st==='fail'?'Sin acciones':'Por medir', c.raw, c.cnt, windowTxt(r.rt,c.d)]); }); });
+    R.rows.filter(function(r){ return r.planned; }).forEach(function(r){ res.push([mes,r.rt.name,r.rt.freq,r.rt.resp,r.rt.area,r.roll.opp,r.roll.ok,r.roll.pend,pr(r.roll.p)]); });
+    res.push([mes,'Total del mes','','','',R.T.opp,R.T.ok,R.T.pend,pr(R.T.p)]);
+    T.opp+=R.T.opp; T.ok+=R.T.ok; T.pend+=R.T.pend;
+  });
+  if(RR.length>1){ fin(T); res.push(['Todos los meses','Total','','','',T.opp,T.ok,T.pend,pr(T.p)]); }
   var wb=XLSX.utils.book_new(), s1=XLSX.utils.aoa_to_sheet(res), s2=XLSX.utils.aoa_to_sheet(rows,{cellDates:true});
-  s1['!cols']=[{wch:38},{wch:10},{wch:20},{wch:14},{wch:12},{wch:12},{wch:10},{wch:13}];
-  s2['!cols']=[{wch:38},{wch:10},{wch:20},{wch:14},{wch:11},{wch:10},{wch:8},{wch:13},{wch:10},{wch:10},{wch:10}];
-  for(var r=1;r<rows.length;r++){ var a=XLSX.utils.encode_cell({r:r,c:4}); if(s2[a]) s2[a].z='dd/mm/yyyy'; }
-  for(var q=1;q<res.length;q++){ var b=XLSX.utils.encode_cell({r:q,c:7}); if(s1[b]&&s1[b].t==='n') s1[b].z='0%'; }
+  s1['!cols']=[{wch:16},{wch:38},{wch:10},{wch:20},{wch:14},{wch:12},{wch:12},{wch:10},{wch:13}];
+  s2['!cols']=[{wch:16},{wch:38},{wch:10},{wch:20},{wch:14},{wch:11},{wch:10},{wch:8},{wch:13},{wch:10},{wch:10},{wch:22}];
+  for(var r=1;r<rows.length;r++){ var a=XLSX.utils.encode_cell({r:r,c:5}); if(s2[a]) s2[a].z='dd/mm/yyyy'; }
+  for(var q=1;q<res.length;q++){ var b=XLSX.utils.encode_cell({r:q,c:8}); if(s1[b]&&s1[b].t==='n') s1[b].z='0%'; }
   XLSX.utils.book_append_sheet(wb,s1,'Resumen'); XLSX.utils.book_append_sheet(wb,s2,'Reuniones');
-  XLSX.writeFile(wb,'Cumplimiento rutinas '+MESES[R.m-1]+' '+R.y+' (hasta '+isoD(H)+').xlsx');
+  XLSX.writeFile(wb,'Cumplimiento rutinas '+(RR.length>1?'todos los meses':mesLabel(RR[0].key))+' (hasta '+isoD(H)+').xlsx');
 }
 
 /* ---------- Tendencia ---------- */
@@ -985,7 +1021,18 @@ function renderTen(){
   var sin=ms.filter(function(k){ return !S.cals[k]; });
   var v='<div class="sechead"><div><h2>Tendencia de cumplimiento</h2><p class="sub">Cada mes se mide con su calendario de reuniones'+(sin.length?'; '+sin.length+' de '+ms.length+' meses no tienen calendario y usan los días por defecto':'')+'. Medido hasta el '+esc(dLong(H))+'.</p></div><div class="legend">'+legend()+'</div></div>';
   v+='<div class="ctrls">'+scopeCtrls()+'</div>';
-  var ticks=[0,25,50,75,100];
+  v+=trendBlocks(res, ms);
+  /* Acciones por mes y pilar */
+  var pil={}; S.acts.forEach(function(a){ var k=a.y+'-'+(a.m<10?'0':'')+a.m; (pil[a.pil||'Sin pilar']||(pil[a.pil||'Sin pilar']={}))[k]=((pil[a.pil||'Sin pilar']||{})[k]||0)+1; });
+  var pk=Object.keys(pil).sort(function(a,b){ return sum(pil[b])-sum(pil[a]); });
+  v+='<div class="sechead"><h2>Acciones creadas por mes y pilar</h2></div><section class="card"><div class="scroll"><table><thead><tr><th>Pilar</th>'+ms.map(function(k){ var p=k.split('-'); return '<th class="r">'+MES3[+p[1]-1]+'</th>'; }).join('')+'<th class="r">Total</th></tr></thead><tbody>'+
+    pk.map(function(p){ return '<tr><td>'+esc(p)+'</td>'+ms.map(function(k){ return '<td class="r">'+(pil[p][k]||'')+'</td>'; }).join('')+'<td class="r"><strong>'+sum(pil[p])+'</strong></td></tr>'; }).join('')+
+    '<tr class="area"><td>Total</td>'+ms.map(function(k){ return '<td class="r">'+pk.reduce(function(s,p){ return s+(pil[p][k]||0); },0)+'</td>'; }).join('')+'<td class="r">'+S.acts.length+'</td></tr></tbody></table></div></section>';
+  $('vTen').innerHTML=v;
+}
+/* Gráfica de cumplimiento por mes y tabla rutina × mes (Tendencia y "Todos los meses"). */
+function trendBlocks(res, ms){
+  var v='', ticks=[0,25,50,75,100];
   v+='<section class="card chart"><span class="lbl">Cumplimiento por mes'+(S.freq!=='all'?' · '+PL[S.freq]:'')+'</span><div class="plot">'+
     ticks.map(function(t){ return '<div class="grid" style="bottom:'+t+'%"><span>'+t+'</span></div>'; }).join('')+
     '<div class="goal" style="bottom:'+(S.meta*100)+'%"><span>Meta '+Math.round(S.meta*100)+' %</span></div>'+
@@ -1010,14 +1057,8 @@ function renderTen(){
   });
   var at=roll(); res.forEach(function(x){ at.opp+=x.T.opp; at.ok+=x.T.ok; at.pend+=x.T.pend; }); fin(at);
   t+='<tr class="area"><td>Total</td>'+res.map(function(x){ return wkCell(x.T,'Total · '+MESES[x.m-1]); }).join('')+'<td class="r">'+pct(at.p)+'</td></tr></tbody></table></div>';
-  v+='<div class="sechead"><h2>Por rutina y mes</h2></div><section class="card">'+t+'</section>';
-  /* Acciones por mes y pilar */
-  var pil={}; S.acts.forEach(function(a){ var k=a.y+'-'+(a.m<10?'0':'')+a.m; (pil[a.pil||'Sin pilar']||(pil[a.pil||'Sin pilar']={}))[k]=((pil[a.pil||'Sin pilar']||{})[k]||0)+1; });
-  var pk=Object.keys(pil).sort(function(a,b){ return sum(pil[b])-sum(pil[a]); });
-  v+='<div class="sechead"><h2>Acciones creadas por mes y pilar</h2></div><section class="card"><div class="scroll"><table><thead><tr><th>Pilar</th>'+ms.map(function(k){ var p=k.split('-'); return '<th class="r">'+MES3[+p[1]-1]+'</th>'; }).join('')+'<th class="r">Total</th></tr></thead><tbody>'+
-    pk.map(function(p){ return '<tr><td>'+esc(p)+'</td>'+ms.map(function(k){ return '<td class="r">'+(pil[p][k]||'')+'</td>'; }).join('')+'<td class="r"><strong>'+sum(pil[p])+'</strong></td></tr>'; }).join('')+
-    '<tr class="area"><td>Total</td>'+ms.map(function(k){ return '<td class="r">'+pk.reduce(function(s,p){ return s+(pil[p][k]||0); },0)+'</td>'; }).join('')+'<td class="r">'+S.acts.length+'</td></tr></tbody></table></div></section>';
-  $('vTen').innerHTML=v;
+  v+='<div class="sechead"><h2>Adherencia por rutina y mes</h2></div><section class="card">'+t+'</section>';
+  return v;
 }
 function sum(o){ return Object.keys(o).reduce(function(s,k){ return s+o[k]; },0); }
 
@@ -1029,15 +1070,15 @@ function countBy(list,f,top){
   return r;
 }
 function renderAct(ym){
-  var today=todayDn(), mesTxt=MESES[ym.m-1]+' de '+ym.y;
-  var mon=S.acts.filter(function(a){ return a.y===ym.y && a.m===ym.m; });
+  var today=todayDn(), mesTxt=ym.all?'todos los meses':MESES[ym.m-1]+' de '+ym.y;
+  var mon=ym.all?S.acts.slice():S.acts.filter(function(a){ return a.y===ym.y && a.m===ym.m; });
   var open=S.acts.filter(function(a){ return !isDone(a.est); });
   var late=open.filter(function(a){ return a.comp!=null && a.comp<today; });
   var done=mon.filter(function(a){ return isDone(a.est); }).length, owners={}; mon.forEach(function(a){ if(a.owner) owners[norm(a.owner)]=1; });
   var v='<div class="sechead"><div><h2>Acciones · '+esc(mesTxt)+'</h2><p class="sub">Por fecha de creación. Las pendientes incluyen todos los meses.</p></div></div>';
   v+='<section class="tiles">'+
-    tile('Creadas en el mes', mon.length)+
-    tile('Completadas', done, mon.length?Math.round(done/mon.length*100)+' % del mes':'')+
+    tile(ym.all?'Creadas':'Creadas en el mes', mon.length)+
+    tile('Completadas', done, mon.length?Math.round(done/mon.length*100)+(ym.all?' % del total':' % del mes'):'')+
     tile('Pendientes (todas)', open.length, open.filter(function(a){ return norm(a.est)==='in_progress'; }).length+' en progreso')+
     tile('Vencidas', late.length, 'Fecha compromiso pasada', late.length?'crit':'')+
     tile('Dueños con acciones', Object.keys(owners).length)+
@@ -1066,7 +1107,7 @@ function renderAct(ym){
     if(S.est==='open' && isDone(a.est)) return false; if(S.est==='done' && !isDone(a.est)) return false;
     return !q || norm([a.rt,a.owner,a.kpi,a.desc,a.inv,a.tool,a.id].join(' ')).indexOf(q)>=0;
   }).sort(function(a,b){ return b.dn-a.dn || (a.hm<b.hm?1:-1); });
-  v+='<div class="sechead"><div><h2>Acciones del mes</h2><p class="sub" id="actCount">'+list.length+' de '+mon.length+' acciones</p></div><div class="tools">'+
+  v+='<div class="sechead"><div><h2>'+(ym.all?'Todas las acciones':'Acciones del mes')+'</h2><p class="sub" id="actCount">'+list.length+' de '+mon.length+' acciones</p></div><div class="tools">'+
     '<label class="vh" for="actQ">Buscar</label><input type="search" id="actQ" placeholder="Buscar rutina, dueño, KPI o texto" value="'+esc(S.q)+'">'+
     '<label class="vh" for="pilSel">Pilar</label><select id="pilSel"><option value="all">Todos los pilares</option>'+pils.map(function(p){ return '<option'+(S.pil===p?' selected':'')+'>'+esc(p)+'</option>'; }).join('')+'</select>'+
     '<label class="vh" for="estSel">Estatus</label><select id="estSel"><option value="all">Todos los estatus</option><option value="open"'+(S.est==='open'?' selected':'')+'>Pendientes</option><option value="done"'+(S.est==='done'?' selected':'')+'>Completadas</option></select></div></div>';
@@ -1155,7 +1196,8 @@ function computeKpis(ym){
 function fmt1(x){ return (Math.round(x*10)/10).toString().replace('.',','); }
 function top2(o){ return Object.keys(o).sort(function(a,b){ return o[b]-o[a]; }).slice(0,2).map(function(k){ return k+' ('+o[k]+')'; }).join(', '); }
 function renderKpi(ym){
-  var K=computeKpis(ym), mesTxt=MESES[ym.m-1]+' de '+ym.y, cnt={good:0,warn:0,crit:0}, sinMes=0;
+  /* Con "Todos los meses", el estado se mide al último mes con datos. */
+  var K=computeKpis(ym), mesTxt=(ym.all?'estado actual, ':'')+MESES[ym.m-1]+' de '+ym.y, cnt={good:0,warn:0,crit:0}, sinMes=0;
   K.G.forEach(function(x){ cnt[x.st]++; if(!x.mes) sinMes++; });
   var v='<div class="sechead"><div><h2>KPI críticos · '+esc(mesTxt)+'</h2><p class="sub">Qué indicadores críticos están recibiendo acciones y cuáles se están quedando sin seguimiento. Calculado al '+esc(dLong(K.ref))+'.</p></div>'+
     '</div>';
@@ -1378,7 +1420,7 @@ document.addEventListener('click', function(e){
     case 'calDel': if(confirm('¿Eliminar el calendario de '+mesLabel(k)+'? El cumplimiento de ese mes volverá a usar los días por defecto.')){ delete S.cals[k]; save(); render(); } break;
     case 'calDl': downloadCal(k); break;
     case 'calAdd': addToCal($('calAddName').value); break;
-    case 'goCal': S.calKey=S.month; S.view='plan'; save(); render(); window.scrollTo(0,0); break;
+    case 'goCal': S.calKey=S.month==='all'?months().pop():S.month; S.view='plan'; save(); render(); window.scrollTo(0,0); break;
     case 'dlBtn': download(); break;
     case 'hastaAuto': S.hasta=null; save(); render(); break;
     case 'clearData':
