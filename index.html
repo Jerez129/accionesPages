@@ -1000,13 +1000,13 @@ function download(){
   RR.forEach(function(R){
     var mes=mesLabel(R.key);
     R.rows.forEach(function(r){ r.cells.forEach(function(c){ if(!c.plan) return; var p=parts(c.d);
-      rows.push([mes, r.rt.name, r.rt.freq, r.rt.resp, r.rt.area, new Date(p.y,p.m-1,p.d), WDN[p.wd], isoWeek(c.d), c.st==='ok'?'Cumplida':c.st==='fail'?'Sin acciones':'Por medir', c.raw, c.cnt, windowTxt(r.rt,c.d)]); }); });
+      rows.push([mes, r.rt.name, r.rt.freq, r.rt.resp, r.rt.area, xlsDate(c.d), WDN[p.wd], isoWeek(c.d), c.st==='ok'?'Cumplida':c.st==='fail'?'Sin acciones':'Por medir', c.raw, c.cnt, windowTxt(r.rt,c.d)]); }); });
     R.rows.filter(function(r){ return r.planned; }).forEach(function(r){ res.push([mes,r.rt.name,r.rt.freq,r.rt.resp,r.rt.area,r.roll.opp,r.roll.ok,r.roll.pend,pr(r.roll.p)]); });
     res.push([mes,'Total del mes','','','',R.T.opp,R.T.ok,R.T.pend,pr(R.T.p)]);
     T.opp+=R.T.opp; T.ok+=R.T.ok; T.pend+=R.T.pend;
   });
   if(RR.length>1){ fin(T); res.push(['Todos los meses','Total','','','',T.opp,T.ok,T.pend,pr(T.p)]); }
-  var wb=XLSX.utils.book_new(), s1=XLSX.utils.aoa_to_sheet(res), s2=XLSX.utils.aoa_to_sheet(rows,{cellDates:true});
+  var wb=XLSX.utils.book_new(), s1=XLSX.utils.aoa_to_sheet(res), s2=XLSX.utils.aoa_to_sheet(rows);
   s1['!cols']=[{wch:16},{wch:38},{wch:10},{wch:20},{wch:14},{wch:12},{wch:12},{wch:10},{wch:13}];
   s2['!cols']=[{wch:16},{wch:38},{wch:10},{wch:20},{wch:14},{wch:11},{wch:10},{wch:8},{wch:13},{wch:10},{wch:10},{wch:22}];
   for(var r=1;r<rows.length;r++){ var a=XLSX.utils.encode_cell({r:r,c:5}); if(s2[a]) s2[a].z='dd/mm/yyyy'; }
@@ -1091,36 +1091,89 @@ function renderAct(ym){
     '<div class="card">'+cbars('Por origen', countBy(mon,function(a){ return a.org; }))+'</div>'+
     '<div class="card">'+cbars('Por herramienta de gestión', countBy(mon,function(a){ return a.tool||'Sin herramienta'; },8))+'</div></section>';
 
-  /* Pendientes */
-  open.sort(function(a,b){ return (a.comp==null?1e9:a.comp)-(b.comp==null?1e9:b.comp); });
-  v+='<div class="sechead"><div><h2>Acciones pendientes</h2><p class="sub">Abiertas o en progreso, de cualquier mes, ordenadas por fecha compromiso.</p></div></div>';
-  v+='<section class="card">'+(open.length?'<div class="scroll"><table class="acts"><thead><tr><th>Compromiso</th><th>Estatus</th><th>Rutina</th><th>Dueño</th><th>Descripción</th><th>Creada</th></tr></thead><tbody>'+
-    open.map(function(a){ var od=a.comp!=null&&a.comp<today?today-a.comp:0;
-      return '<tr><td class="nw">'+(a.comp!=null?dLabel(a.comp)+' '+parts(a.comp).y:'—')+(od?'<br><span class="tag s-crit">'+od+' d vencida</span>':'')+'</td><td class="nw">'+esc(estLabel(a.est))+'</td><td>'+esc(a.rt)+'<br><span class="extra">'+esc(a.pil)+'</span></td><td>'+esc(a.owner)+'</td><td class="desc">'+esc(a.desc)+'</td><td class="nw">'+dLabel(a.dn)+' '+a.y+'</td></tr>'; }).join('')+
-    '</tbody></table></div>':'<p class="sub">No hay acciones abiertas ni en progreso.</p>')+'</section>';
-
-  /* Lista del mes */
-  var pils=countBy(mon,function(a){ return a.pil; }).map(function(x){ return x.name; });
-  if(S.pil!=='all' && pils.indexOf(S.pil)<0) S.pil='all';
-  var q=norm(S.q), list=mon.filter(function(a){
-    if(S.pil!=='all' && (a.pil||'(vacío)')!==S.pil) return false;
-    if(S.est==='open' && isDone(a.est)) return false; if(S.est==='done' && !isDone(a.est)) return false;
-    return !q || norm([a.rt,a.owner,a.kpi,a.desc,a.inv,a.tool,a.id].join(' ')).indexOf(q)>=0;
-  }).sort(function(a,b){ return b.dn-a.dn || (a.hm<b.hm?1:-1); });
-  v+='<div class="sechead"><div><h2>'+(ym.all?'Todas las acciones':'Acciones del mes')+'</h2><p class="sub" id="actCount">'+list.length+' de '+mon.length+' acciones</p></div><div class="tools">'+
-    '<label class="vh" for="actQ">Buscar</label><input type="search" id="actQ" placeholder="Buscar rutina, dueño, KPI o texto" value="'+esc(S.q)+'">'+
-    '<label class="vh" for="pilSel">Pilar</label><select id="pilSel"><option value="all">Todos los pilares</option>'+pils.map(function(p){ return '<option'+(S.pil===p?' selected':'')+'>'+esc(p)+'</option>'; }).join('')+'</select>'+
-    '<label class="vh" for="estSel">Estatus</label><select id="estSel"><option value="all">Todos los estatus</option><option value="open"'+(S.est==='open'?' selected':'')+'>Pendientes</option><option value="done"'+(S.est==='done'?' selected':'')+'>Completadas</option></select></div></div>';
-  v+='<section class="card" id="actList">'+actTable(list)+'</section>';
+  /* Seguimiento: todas las acciones, de cualquier mes, con filtros propios. */
+  v+=followSection(today);
   $('vAct').innerHTML=v;
 }
 function tile(l,n,sub,cls){ return '<div class="card tile"><span class="lbl">'+l+'</span><span class="v'+(cls?' '+cls:'')+'">'+n+'</span>'+(sub?'<span class="sub" style="font-size:12.5px">'+esc(sub)+'</span>':'')+'</div>'; }
-function actTable(list){
-  if(!list.length) return '<p class="sub">No hay acciones con este filtro.</p>';
-  var h='<div class="scroll"><table class="acts"><thead><tr><th>Fecha</th><th>Rutina</th><th>Dueño</th><th>KPI</th><th>Descripción</th><th>Estatus</th></tr></thead><tbody>'+
-    list.slice(0,S.lim).map(function(a){ return '<tr><td class="nw">'+dLabel(a.dn)+(a.hm?'<br><span class="extra">'+a.hm+'</span>':'')+'</td><td>'+esc(a.rt)+'<br><span class="extra">'+esc(a.pil)+(a.org&&a.org!=='ACTION_LOG'?' · '+esc(a.org):'')+'</span></td><td>'+esc(a.owner)+'</td><td>'+esc(a.kpi)+'</td><td class="desc">'+esc(a.desc)+'</td><td class="nw">'+esc(estLabel(a.est))+'</td></tr>'; }).join('')+'</tbody></table></div>';
+/* ---------- Seguimiento de acciones ---------- */
+/* Filtros de la sección: estatus, mes de creación, dueño, indicador (grupo de KPI crítico "g:i" o código "c:código") y pilar. */
+var AF = {st:'open', per:'all', own:'all', kpi:'all', pil:'all'};
+var AFST = [['open','Pendientes'],['late','Vencidas'],['done','Completadas'],['all','Todas']];
+function stOf(a,today){ return isDone(a.est) ? 'done' : (a.comp!=null && a.comp<today ? 'late' : 'open'); }
+function kpiTest(){
+  if(AF.kpi==='all') return null;
+  if(AF.kpi.indexOf('g:')===0){ var g=S.kpis[+AF.kpi.slice(2)], set={}; if(!g) return null; g.codes.forEach(function(c){ set[norm(c)]=1; }); return function(a){ return !!set[norm(a.kpi)]; }; }
+  var k=AF.kpi.slice(2); return function(a){ return norm(a.kpi)===k; };
+}
+/* skip: filtro que no se aplica (para contar las opciones de ese mismo filtro). */
+function followList(today, skip){
+  var q=norm(S.q), kt=skip==='kpi'?null:kpiTest();
+  return S.acts.filter(function(a){
+    var st=stOf(a,today);
+    if(AF.st==='open' && st==='done') return false;
+    if((AF.st==='late' || AF.st==='done') && st!==AF.st) return false;
+    if(AF.per!=='all' && mkey(a.y,a.m)!==AF.per) return false;
+    if(skip!=='own' && AF.own!=='all' && norm(a.owner)!==AF.own) return false;
+    if(kt && !kt(a)) return false;
+    if(skip!=='pil' && AF.pil!=='all' && (a.pil||'(vacío)')!==AF.pil) return false;
+    return !q || norm([a.rt,a.owner,a.kpi,a.desc,a.inv,a.tool,a.id].join(' ')).indexOf(q)>=0;
+  });
+}
+/* Pendientes y vencidas: por fecha compromiso (la más atrasada primero). Las demás: la más reciente primero. */
+function sortFollow(list){
+  return list.sort(AF.st==='open'||AF.st==='late' ? function(a,b){ return (a.comp==null?1e9:a.comp)-(b.comp==null?1e9:b.comp) || a.dn-b.dn; }
+                                                  : function(a,b){ return b.dn-a.dn || (a.hm<b.hm?1:-1); });
+}
+function opt(v,txt,sel){ return '<option value="'+esc(v)+'"'+(v===sel?' selected':'')+'>'+esc(txt)+'</option>'; }
+function followSection(today){
+  var list=sortFollow(followList(today));
+  /* Opciones con su cantidad según los demás filtros. */
+  var own={}, ownN={}; followList(today,'own').forEach(function(a){ var k=norm(a.owner); if(!k) return; own[k]=own[k]||a.owner; ownN[k]=(ownN[k]||0)+1; });
+  var kl=followList(today,'kpi'), codes={}, codeN={}; kl.forEach(function(a){ var k=norm(a.kpi); if(!k) return; codes[k]=codes[k]||a.kpi; codeN[k]=(codeN[k]||0)+1; });
+  var pil={}; followList(today,'pil').forEach(function(a){ var k=a.pil||'(vacío)'; pil[k]=(pil[k]||0)+1; });
+  if(AF.own!=='all' && !own[AF.own]) own[AF.own]=AF.own;
+  var late=list.filter(function(a){ return stOf(a,today)==='late'; }).length, prog=list.filter(function(a){ return norm(a.est)==='in_progress'; }).length;
+  var stTxt={open:'pendientes',late:'vencidas',done:'completadas',all:''}[AF.st];
+  var v='<div class="sechead"><div><h2>Seguimiento de acciones</h2><p class="sub">'+list.length+' acciones'+(stTxt?' '+stTxt:'')+
+    (AF.st!=='done'&&late?' · <strong style="color:var(--crit)">'+late+' vencidas</strong>':'')+(prog&&AF.st!=='done'?' · '+prog+' en progreso':'')+
+    '. De cualquier mes, sin importar el mes elegido arriba.</p></div>'+
+    '<div class="tools"><button type="button" data-act="afDl"'+(list.length?'':' disabled')+'>Descargar en Excel</button>'+
+    ((AF.st!=='open'||AF.per!=='all'||AF.own!=='all'||AF.kpi!=='all'||AF.pil!=='all'||S.q)?'<button type="button" class="quiet" data-act="afClear">Quitar filtros</button>':'')+'</div></div>';
+  v+='<div class="ctrls"><div class="seg" role="group" aria-label="Estatus">'+AFST.map(function(x){ return '<button type="button" data-afst="'+x[0]+'" aria-pressed="'+(AF.st===x[0])+'">'+x[1]+'</button>'; }).join('')+'</div>'+
+    '<label class="vh" for="afOwn">Dueño</label><select id="afOwn">'+opt('all','Todos los dueños',AF.own)+
+      Object.keys(own).sort(function(a,b){ return own[a].localeCompare(own[b],'es',{sensitivity:'base'}); }).map(function(k){ return opt(k, own[k]+' ('+(ownN[k]||0)+')', AF.own); }).join('')+'</select>'+
+    '<label class="vh" for="afKpi">Indicador</label><select id="afKpi">'+opt('all','Todos los indicadores',AF.kpi)+
+      '<optgroup label="KPI críticos">'+S.kpis.map(function(g,gi){ var n=g.codes.reduce(function(s2,c){ return s2+(codeN[norm(c)]||0); },0); return opt('g:'+gi, g.name+' ('+n+')', AF.kpi); }).join('')+'</optgroup>'+
+      '<optgroup label="Por código">'+Object.keys(codes).sort().map(function(k){ return opt('c:'+k, kpiLabel(codes[k])+' ('+codeN[k]+')', AF.kpi); }).join('')+'</optgroup></select>'+
+    '<label class="vh" for="afPil">Pilar</label><select id="afPil">'+opt('all','Todos los pilares',AF.pil)+Object.keys(pil).sort().map(function(k){ return opt(k, k+' ('+pil[k]+')', AF.pil); }).join('')+'</select>'+
+    '<label class="vh" for="afPer">Mes de creación</label><select id="afPer">'+opt('all','Creadas en cualquier mes',AF.per)+months().slice().reverse().map(function(k){ return opt(k, 'Creadas en '+mesLabel(k), AF.per); }).join('')+'</select>'+
+    '<label class="vh" for="actQ">Buscar</label><input type="search" id="actQ" placeholder="Buscar texto, rutina o folio" value="'+esc(S.q)+'"></div>';
+  v+='<section class="card">'+followTable(list,today)+'</section>';
+  return v;
+}
+function followTable(list,today){
+  if(!list.length) return '<p class="sub">No hay acciones con estos filtros.</p>';
+  var h='<div class="scroll"><table class="acts"><thead><tr><th>Compromiso</th><th>Estatus</th><th>Rutina</th><th>Dueño</th><th>Indicador</th><th>Descripción</th><th>Creada</th></tr></thead><tbody>'+
+    list.slice(0,S.lim).map(function(a){
+      var st=stOf(a,today), od=st==='late'?today-a.comp:0;
+      return '<tr><td class="nw">'+(a.comp!=null?dLabel(a.comp)+' '+parts(a.comp).y:'—')+(od?'<br><span class="tag s-crit">'+od+' d vencida</span>':'')+'</td>'+
+        '<td class="nw">'+esc(estLabel(a.est))+'</td><td>'+esc(a.rt)+'<br><span class="extra">'+esc(a.pil)+(a.org&&a.org!=='ACTION_LOG'?' · '+esc(a.org):'')+'</span></td>'+
+        '<td>'+esc(a.owner)+'</td><td>'+esc(kpiLabel(a.kpi))+'</td><td class="desc">'+esc(a.desc)+'</td><td class="nw">'+dLabel(a.dn)+' '+a.y+'</td></tr>'; }).join('')+'</tbody></table></div>';
   if(list.length>S.lim) h+='<div style="margin-top:10px"><button type="button" id="moreActs">Ver '+Math.min(200,list.length-S.lim)+' más</button> <span class="sub">Mostrando '+S.lim+' de '+list.length+'</span></div>';
   return h;
+}
+function downloadFollow(){
+  var today=todayDn(), list=sortFollow(followList(today));
+  var head=['Folio','Creada','Rutina','Pilar','Dueño','Posición','Indicador (KPI)','Herramienta','Descripción','Involucrados','Estatus','Fecha compromiso','Días vencida','Origen'], rows=[head];
+  function xd(n){ return n==null ? '' : xlsDate(n); }   /* número de día de Excel: la fecha no se corre por la zona horaria */
+  list.forEach(function(a){ var st=stOf(a,today);
+    rows.push([a.id, xd(a.dn), a.rt, a.pil, a.owner, a.pos, a.kpi, a.tool, a.desc, a.inv, estLabel(a.est), xd(a.comp), st==='late'?today-a.comp:'', a.org]); });
+  var ws=XLSX.utils.aoa_to_sheet(rows);
+  for(var r=1;r<rows.length;r++) [1,11].forEach(function(c){ var x=ws[XLSX.utils.encode_cell({r:r,c:c})]; if(x && x.t==='n') x.z='dd/mm/yyyy'; });
+  ws['!cols']=[{wch:16},{wch:11},{wch:30},{wch:13},{wch:28},{wch:22},{wch:24},{wch:16},{wch:60},{wch:30},{wch:12},{wch:12},{wch:8},{wch:11}];
+  var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Acciones');
+  XLSX.writeFile(wb, 'Seguimiento de acciones '+isoD(today)+'.xlsx');
 }
 
 /* ---------- KPI críticos ---------- */
@@ -1224,6 +1277,7 @@ function renderKpi(ym){
       '<td class="sm">'+(x.mes?esc(top2(x.own))+'<br><span class="extra">'+esc(top2(x.rut))+'</span>':'<span class="extra">Nadie este mes</span>')+'</td></tr>';
     if(open){
       t+='<tr class="kd"><td colspan="'+(8+K.ms.length)+'">'+(x.g.why?'<p class="sub" style="margin:0 0 8px">Por qué seguirlo: '+esc(x.g.why)+'</p>':'')+
+        '<p style="margin:0 0 8px"><button type="button" data-kgo="'+S.kpis.indexOf(x.g)+'">Ver todas sus acciones en Seguimiento</button></p>'+
         (x.list.length?'<table><thead><tr><th>Fecha</th><th>Rutina</th><th>Dueño</th><th>Descripción</th><th>Estatus</th></tr></thead><tbody>'+x.list.map(function(a){
           return '<tr><td class="nw">'+dLabel(a.dn)+' '+a.y+'</td><td>'+esc(a.rt)+'</td><td>'+esc(a.owner)+'</td><td class="desc">'+esc(a.desc)+'</td><td class="nw">'+esc(estLabel(a.est))+'</td></tr>'; }).join('')+'</tbody></table>'
           :'<p class="sub">No hay acciones con estos códigos en el archivo.</p>')+'</td></tr>';
@@ -1401,6 +1455,8 @@ document.addEventListener('click', function(e){
   if(t.dataset.rm){ var cr=S.cat[+t.dataset.rm]; if(confirm('¿Quitar la rutina "'+cr.name+'" de la lista? Los calendarios guardados no cambian.')){ S.cat.splice(+t.dataset.rm,1); save(); render(); } return; }
   if(t.dataset.addname!=null){ addRoutine(t.dataset.addname); return; }
   if(t.dataset.kf){ S.kf=t.dataset.kf; render(); return; }
+  if(t.dataset.afst){ AF.st=t.dataset.afst; S.lim=100; render(); return; }
+  if(t.dataset.kgo!=null){ AF={st:'all', per:'all', own:'all', kpi:'g:'+t.dataset.kgo, pil:'all'}; S.q=''; S.lim=100; S.view='act'; save(); render(); var fs=$('afKpi'); if(fs) fs.scrollIntoView({block:'center'}); return; }
   if(t.dataset.ku){ S.ku=t.dataset.ku; render(); return; }
   if(t.dataset.kopen!=null){ var kn=t.dataset.kopen; if(S.kopen[kn]) delete S.kopen[kn]; else S.kopen[kn]=1; render(); refocus('[data-kopen="'+CSS.escape(kn)+'"]'); return; }
   if(t.dataset.kadd!=null){ S.kpis.push({name:kpiLabel(t.dataset.kadd).toLowerCase().replace(/^./,function(c){ return c.toUpperCase(); }), codes:[t.dataset.kadd], u:true, why:''}); save(); render(); return; }
@@ -1429,6 +1485,8 @@ document.addEventListener('click', function(e){
     case 'resetPlan': if(confirm('¿Volver a la lista de rutinas y días por defecto de REFERENCIA? Los calendarios guardados no cambian.')){ S.cat=defCat(); save(); render(); } break;
     case 'addRt': addRoutine($('newRt').value); break;
     case 'moreActs': S.lim+=200; render(); break;
+    case 'afDl': downloadFollow(); break;
+    case 'afClear': AF={st:'open', per:'all', own:'all', kpi:'all', pil:'all'}; S.q=''; S.lim=100; render(); break;
     case 'moreKpi': S.olim=1e9; render(); break;
     case 'kNew': var nn=clean($('knew').value); if(nn){ S.kpis.push({name:nn, codes:[], u:true, why:''}); S.kedOpen=true; save(); render(); } break;
     case 'kReset': if(confirm('¿Volver a la lista sugerida de KPI críticos? Se pierden los cambios hechos a la lista.')){ S.kpis=defKpis(); save(); render(); } break;
@@ -1458,8 +1516,7 @@ document.addEventListener('change', function(e){
   if(t.id==='showAll'){ S.showAll=t.checked; save(); render(); return; }
   if(t.id==='showOff'){ S.showOff=t.checked; save(); render(); return; }
   if(t.id==='hastaIn'){ S.hasta=fromIso(t.value); save(); render(); return; }
-  if(t.id==='pilSel'){ S.pil=t.value; S.lim=100; render(); return; }
-  if(t.id==='estSel'){ S.est=t.value; S.lim=100; render(); return; }
+  if(t.id==='afOwn'||t.id==='afKpi'||t.id==='afPil'||t.id==='afPer'){ AF[{afOwn:'own',afKpi:'kpi',afPil:'pil',afPer:'per'}[t.id]]=t.value; S.lim=100; render(); refocus('#'+t.id); return; }
   if(t.id==='metaIn'){ var m=+t.value; if(m>=1&&m<=100){ S.meta=m/100; save(); } render(); return; }
   if(t.id==='calMonth'){ if(/^\d{4}-\d{2}$/.test(t.value)){ S.calKey=t.value; save(); render(); } return; }
   if(t.id==='calCd' && cal){ cal.cd=clean(t.value)||cal.cd; save(); render(); return; }
