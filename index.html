@@ -284,6 +284,7 @@ td.hm.zero span{background:color-mix(in srgb,var(--crit) 14%,transparent);color:
 
   <nav class="tabs" role="tablist" aria-label="Vista">
     <button type="button" role="tab" data-view="cum">Cumplimiento del mes</button>
+    <button type="button" role="tab" data-view="d1">D-1</button>
     <button type="button" role="tab" data-view="ten">Tendencia</button>
     <button type="button" role="tab" data-view="act">Acciones</button>
     <button type="button" role="tab" data-view="kpi">KPI críticos</button>
@@ -305,6 +306,7 @@ td.hm.zero span{background:color-mix(in srgb,var(--crit) 14%,transparent);color:
   <div class="view" id="vTen" hidden></div>
   <div class="view" id="vAct" hidden></div>
   <div class="view" id="vKpi" hidden></div>
+  <div class="view" id="vD1" hidden></div>
   <div class="view" id="vPlan" hidden></div>
 </div>
 <div id="tip" hidden></div>
@@ -436,7 +438,7 @@ function load(){
     });
     if(typeof o.meta==='number' && o.meta>0 && o.meta<=1) S.meta=o.meta;
     S.fileName=o.fileName||''; S.agency=o.agency||''; S.month=o.month||null; S.calKey=o.calKey||null;
-    if(['cum','ten','act','kpi','plan'].indexOf(o.view)>=0) S.view=o.view;
+    if(['cum','d1','ten','act','kpi','plan'].indexOf(o.view)>=0) S.view=o.view;
     if(Array.isArray(o.kpis) && o.kpis.length) S.kpis=o.kpis.filter(function(g){ return g && g.name && Array.isArray(g.codes); });
     S.kedOpen=!!o.kedOpen;
     S.freq=o.freq||'all'; S.area=o.area||'all'; S.hasta=typeof o.hasta==='number'?o.hasta:null; S.showAll=!!o.showAll; S.showOff=!!o.showOff; S.defOpen=!!o.defOpen;
@@ -873,9 +875,9 @@ function render(){
   Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function(b){ b.setAttribute('aria-selected', String(b.dataset.view===S.view)); });
   var has=S.acts.length>0;
   $('fileBtn').textContent=has?'Cargar otro Excel':'Cargar Excel';
-  $('vCum').hidden=S.view!=='cum'||!has; $('vTen').hidden=S.view!=='ten'||!has; $('vAct').hidden=S.view!=='act'||!has; $('vKpi').hidden=S.view!=='kpi'||!has; $('vPlan').hidden=S.view!=='plan';
+  $('vCum').hidden=S.view!=='cum'||!has; $('vTen').hidden=S.view!=='ten'||!has; $('vAct').hidden=S.view!=='act'||!has; $('vKpi').hidden=S.view!=='kpi'||!has; $('vD1').hidden=S.view!=='d1'||!has; $('vPlan').hidden=S.view!=='plan';
   $('empty').style.display=(!has && S.view!=='plan')?'flex':'none';
-  $('monthSel').hidden=!has || S.view==='ten' || S.view==='plan';
+  $('monthSel').hidden=!has || S.view==='ten' || S.view==='plan' || S.view==='d1';
   if(has){
     var ld=lastData();
     $('subtitle').textContent=[S.agency, S.acts.length+' acciones hasta el '+dLabel(ld)+' '+parts(ld).y, S.fileName].filter(Boolean).join(' · ');
@@ -887,6 +889,7 @@ function render(){
   if(S.view==='ten') renderTen();
   if(S.view==='act') renderAct(ym);
   if(S.view==='kpi') renderKpi(ym);
+  if(S.view==='d1') renderD1();
 }
 
 /* ---------- Cumplimiento del mes ---------- */
@@ -1096,9 +1099,79 @@ function renderAct(ym){
   $('vAct').innerHTML=v;
 }
 function tile(l,n,sub,cls){ return '<div class="card tile"><span class="lbl">'+l+'</span><span class="v'+(cls?' '+cls:'')+'">'+n+'</span>'+(sub?'<span class="sub" style="font-size:12.5px">'+esc(sub)+'</span>':'')+'</div>'; }
+/* ---------- D-1: reuniones y acciones de un día ---------- */
+/* Por defecto, ayer. Se puede mover a cualquier día; las acciones se filtran por dueño y rutina. */
+var D1 = {day:null, own:'all', rt:'all'};
+function d1Day(){ return D1.day!=null ? D1.day : todayDn()-1; }
+function dayTag(d){ var t=todayDn(); return d===t ? 'hoy' : d===t-1 ? 'ayer (D-1)' : d===t-2 ? 'antier (D-2)' : ''; }
+function renderD1(){
+  var d=d1Day(), t=todayDn(), ld=lastData(), p=parts(d), ix=index(), H=hasta(), tag=dayTag(d);
+  var day=S.acts.filter(function(a){ return a.dn===d; });
+  /* Reuniones del día según el calendario del mes (o los días por defecto), y rutinas con acciones sin reunión. */
+  var meet=monthRows(p.y,p.m).map(function(rt){ return {rt:rt, c:cellFor(rt,d,H,ix)}; }).filter(function(x){ return x.c.plan || x.c.raw>0; });
+  var planned=meet.filter(function(x){ return x.c.plan; }), ok=planned.filter(function(x){ return x.c.st==='ok'; }).length,
+      fail=planned.filter(function(x){ return x.c.st==='fail'; }).length, pend=planned.filter(function(x){ return x.c.st==='pend'; }).length;
+  var owners={}; day.forEach(function(a){ if(a.owner) owners[norm(a.owner)]=1; });
+  var v='<div class="sechead"><div><h2>'+esc((tag?tag.charAt(0).toUpperCase()+tag.slice(1)+' · ':'')+dLong(d)+' '+p.y)+'</h2><p class="sub">Reuniones planificadas ese día y acciones creadas ese día.</p></div>'+
+    '<div class="ctrls"><button type="button" data-d1="-1" aria-label="Día anterior">‹</button><label class="vh" for="d1Day">Día</label><input type="date" id="d1Day" value="'+isoD(d)+'">'+
+    '<button type="button" data-d1="1" aria-label="Día siguiente">›</button><button type="button" data-d1="y"'+(d===t-1?' aria-pressed="true"':'')+'>Ayer (D-1)</button>'+
+    (ld>0 && ld!==t-1 ? '<button type="button" data-d1="ld">Último día con datos ('+esc(dLabel(ld))+')</button>' : '')+'</div></div>';
+  /* Últimos 7 días con acciones: atajo para cambiar de día. */
+  var strip=''; for(var k=7;k>=1;k--){ var dd=(Math.min(t,Math.max(ld,d))+1)-k, n=0; S.acts.forEach(function(a){ if(a.dn===dd) n++; }); var q=parts(dd);
+    strip+='<button type="button" class="pill'+(dd===d?' cur':'')+'" data-d1day="'+dd+'" aria-pressed="'+(dd===d)+'">'+WDN[q.wd].slice(0,3)+' '+q.d+' <b>'+n+'</b></button>'; }
+  v+='<div class="pills"><span class="sub" style="font-size:12.5px">Acciones por día:</span>'+strip+'</div>';
+  if(d>ld) v+='<div class="note">Los datos cargados llegan hasta el '+esc(dLong(ld))+'. Carga el reporte de acciones más reciente con "Cargar Excel" para ver este día.</div>';
+  v+='<section class="tiles">'+tile('Acciones creadas', day.length)+tile('Reuniones planificadas', planned.length)+
+    tile('Con acciones', ok, planned.length?Math.round(ok/planned.length*100)+' % de las reuniones':'')+
+    tile('Sin acciones', fail, fail?'Ya venció su plazo':'', fail?'crit':'')+tile('Por medir', pend, pend?'Todavía están en plazo':'')+tile('Dueños', Object.keys(owners).length)+'</section>';
+  /* Reuniones del día */
+  var ord={fail:0,pend:1,ok:2,none:3};
+  meet.sort(function(a,b){ return ord[a.c.st]-ord[b.c.st] || FREQS.indexOf(a.rt.freq)-FREQS.indexOf(b.rt.freq) || a.rt.name.localeCompare(b.rt.name,'es'); });
+  v+='<div class="sechead"><h2>Reuniones del día</h2></div><section class="card">'+(meet.length?'<div class="scroll"><table class="rt"><thead><tr><th>Rutina</th><th>Responsable</th><th class="r">Acciones ese día</th><th class="r">En su plazo</th><th>Estado</th></tr></thead><tbody>'+
+    meet.map(function(x){ var c=x.c, w=windowOf(x.rt,d), st;
+      if(!c.plan) st='<span class="extra">Acciones sin reunión planificada</span>';
+      else if(c.st==='ok') st=chip('good','Cumplida');
+      else if(c.st==='fail') st=chip('crit','Sin acciones');
+      else st=chip('none','Por medir')+'<br><span class="extra">Plazo hasta el '+esc(dLabel(w[1]))+'</span>';
+      return '<tr><td>'+esc(x.rt.name)+'<br><span class="extra">'+esc(x.rt.freq)+'</span></td><td>'+esc(x.rt.resp||'—')+'</td><td class="r">'+c.raw+'</td><td class="r" data-tip="'+esc('Plazo: '+windowTxt(x.rt,d))+'">'+(c.plan?c.cnt:'')+'</td><td>'+st+'</td></tr>'; }).join('')+
+    '</tbody></table></div>':'<p class="sub">No hay reuniones planificadas ni acciones ese día.</p>')+'</section>';
+  /* Acciones del día */
+  var ownO={}, ownN={}, rtO={}, rtN={};
+  day.forEach(function(a){ var k=norm(a.owner); if(k){ ownO[k]=ownO[k]||a.owner; ownN[k]=(ownN[k]||0)+1; } rtO[a.rk]=rtO[a.rk]||a.rt; rtN[a.rk]=(rtN[a.rk]||0)+1; });
+  if(D1.own!=='all' && !ownO[D1.own]) D1.own='all'; if(D1.rt!=='all' && !rtO[D1.rt]) D1.rt='all';
+  var list=day.filter(function(a){ return (D1.own==='all'||norm(a.owner)===D1.own) && (D1.rt==='all'||a.rk===D1.rt); }).sort(function(a,b){ return a.hm<b.hm?-1:1; });
+  v+='<div class="sechead"><div><h2>Acciones creadas ese día</h2><p class="sub">'+list.length+' de '+day.length+' acciones</p></div><div class="tools">'+
+    '<label class="vh" for="d1Own">Dueño</label><select id="d1Own">'+opt('all','Todos los dueños',D1.own)+Object.keys(ownO).sort().map(function(k){ return opt(k, ownO[k]+' ('+ownN[k]+')', D1.own); }).join('')+'</select>'+
+    '<label class="vh" for="d1Rt">Rutina</label><select id="d1Rt">'+opt('all','Todas las rutinas',D1.rt)+Object.keys(rtO).sort().map(function(k){ return opt(k, rtO[k]+' ('+rtN[k]+')', D1.rt); }).join('')+'</select>'+
+    '<button type="button" data-act="d1Follow">Ver en Seguimiento</button></div></div>';
+  v+='<section class="card">'+(list.length?'<div class="scroll"><table class="acts"><thead><tr><th>Hora</th><th>Rutina</th><th>Dueño</th><th>Indicador</th><th>Descripción</th><th>Estatus</th><th>Compromiso</th></tr></thead><tbody>'+
+    list.map(function(a){ var st=stOf(a,t);
+      return '<tr><td class="nw">'+esc(a.hm||'—')+'</td><td>'+esc(a.rt)+'<br><span class="extra">'+esc(a.pil)+'</span></td><td>'+esc(a.owner)+'</td><td>'+esc(kpiLabel(a.kpi))+'</td><td class="desc">'+esc(a.desc)+'</td>'+
+        '<td class="nw">'+esc(estLabel(a.est))+'</td><td class="nw">'+(a.comp!=null?dLabel(a.comp):'—')+(st==='late'?'<br><span class="tag s-crit">'+(t-a.comp)+' d vencida</span>':'')+'</td></tr>'; }).join('')+
+    '</tbody></table></div>':'<p class="sub">'+(day.length?'Ninguna acción con estos filtros.':'No se crearon acciones ese día.')+'</p>')+'</section>';
+  $('vD1').innerHTML=v;
+}
+
 /* ---------- Seguimiento de acciones ---------- */
-/* Filtros de la sección: estatus, mes de creación, dueño, indicador (grupo de KPI crítico "g:i" o código "c:código") y pilar. */
-var AF = {st:'open', per:'all', own:'all', kpi:'all', pil:'all'};
+/* Filtros de la sección: estatus, periodo de creación, dueño, indicador (grupo de KPI crítico "g:i" o código "c:código"), pilar y rutina. */
+function afNew(o){ return Object.assign({st:'open', per:'all', from:null, to:null, own:'all', kpi:'all', pil:'all', rt:'all'}, o||{}); }
+var AF = afNew();
+/* Periodo de creación: cualquier fecha, ayer (D-1), hoy, últimos 7 o 30 días, entre dos fechas, o un mes ("2026-10"). */
+function perRange(){ var t=todayDn(); return {d1:[t-1,t-1], d0:[t,t], w7:[t-6,t], d30:[t-29,t], rng:[AF.from==null?-1e9:AF.from, AF.to==null?1e9:AF.to]}[AF.per]||null; }
+function perOk(a){ if(AF.per==='all') return true; var r=perRange(); return r ? a.dn>=r[0] && a.dn<=r[1] : mkey(a.y,a.m)===AF.per; }
+function perTxt(){
+  var t=todayDn();
+  switch(AF.per){
+    case 'all': return 'creadas en cualquier fecha';
+    case 'd1': return 'creadas ayer (D-1, '+dLabel(t-1)+')';
+    case 'd0': return 'creadas hoy';
+    case 'w7': return 'creadas en los últimos 7 días';
+    case 'd30': return 'creadas en los últimos 30 días';
+    case 'rng': if(AF.from!=null && AF.from===AF.to) return 'creadas el '+dLabel(AF.from)+(dayTag(AF.from)?' ('+dayTag(AF.from)+')':'');
+      return 'creadas '+(AF.from!=null?'desde el '+dLabel(AF.from)+' ':'')+(AF.to!=null?'hasta el '+dLabel(AF.to):'');
+    default: return 'creadas en '+mesLabel(AF.per);
+  }
+}
 var AFST = [['open','Pendientes'],['late','Vencidas'],['done','Completadas'],['all','Todas']];
 function stOf(a,today){ return isDone(a.est) ? 'done' : (a.comp!=null && a.comp<today ? 'late' : 'open'); }
 function kpiTest(){
@@ -1113,7 +1186,8 @@ function followList(today, skip){
     var st=stOf(a,today);
     if(AF.st==='open' && st==='done') return false;
     if((AF.st==='late' || AF.st==='done') && st!==AF.st) return false;
-    if(AF.per!=='all' && mkey(a.y,a.m)!==AF.per) return false;
+    if(!perOk(a)) return false;
+    if(skip!=='rt' && AF.rt!=='all' && a.rk!==AF.rt) return false;
     if(skip!=='own' && AF.own!=='all' && norm(a.owner)!==AF.own) return false;
     if(kt && !kt(a)) return false;
     if(skip!=='pil' && AF.pil!=='all' && (a.pil||'(vacío)')!==AF.pil) return false;
@@ -1132,14 +1206,16 @@ function followSection(today){
   var own={}, ownN={}; followList(today,'own').forEach(function(a){ var k=norm(a.owner); if(!k) return; own[k]=own[k]||a.owner; ownN[k]=(ownN[k]||0)+1; });
   var kl=followList(today,'kpi'), codes={}, codeN={}; kl.forEach(function(a){ var k=norm(a.kpi); if(!k) return; codes[k]=codes[k]||a.kpi; codeN[k]=(codeN[k]||0)+1; });
   var pil={}; followList(today,'pil').forEach(function(a){ var k=a.pil||'(vacío)'; pil[k]=(pil[k]||0)+1; });
+  var rtO={}, rtN={}; followList(today,'rt').forEach(function(a){ rtO[a.rk]=rtO[a.rk]||a.rt; rtN[a.rk]=(rtN[a.rk]||0)+1; });
+  if(AF.rt!=='all' && !rtO[AF.rt]) rtO[AF.rt]=AF.rt;
   if(AF.own!=='all' && !own[AF.own]) own[AF.own]=AF.own;
   var late=list.filter(function(a){ return stOf(a,today)==='late'; }).length, prog=list.filter(function(a){ return norm(a.est)==='in_progress'; }).length;
   var stTxt={open:'pendientes',late:'vencidas',done:'completadas',all:''}[AF.st];
   var v='<div class="sechead"><div><h2>Seguimiento de acciones</h2><p class="sub">'+list.length+' acciones'+(stTxt?' '+stTxt:'')+
     (AF.st!=='done'&&late?' · <strong style="color:var(--crit)">'+late+' vencidas</strong>':'')+(prog&&AF.st!=='done'?' · '+prog+' en progreso':'')+
-    '. De cualquier mes, sin importar el mes elegido arriba.</p></div>'+
+    ', '+esc(perTxt())+'. No depende del mes elegido arriba.</p></div>'+
     '<div class="tools"><button type="button" data-act="afDl"'+(list.length?'':' disabled')+'>Descargar en Excel</button>'+
-    ((AF.st!=='open'||AF.per!=='all'||AF.own!=='all'||AF.kpi!=='all'||AF.pil!=='all'||S.q)?'<button type="button" class="quiet" data-act="afClear">Quitar filtros</button>':'')+'</div></div>';
+    ((AF.st!=='open'||AF.per!=='all'||AF.own!=='all'||AF.kpi!=='all'||AF.pil!=='all'||AF.rt!=='all'||S.q)?'<button type="button" class="quiet" data-act="afClear">Quitar filtros</button>':'')+'</div></div>';
   v+='<div class="ctrls"><div class="seg" role="group" aria-label="Estatus">'+AFST.map(function(x){ return '<button type="button" data-afst="'+x[0]+'" aria-pressed="'+(AF.st===x[0])+'">'+x[1]+'</button>'; }).join('')+'</div>'+
     '<label class="vh" for="afOwn">Dueño</label><select id="afOwn">'+opt('all','Todos los dueños',AF.own)+
       Object.keys(own).sort(function(a,b){ return own[a].localeCompare(own[b],'es',{sensitivity:'base'}); }).map(function(k){ return opt(k, own[k]+' ('+(ownN[k]||0)+')', AF.own); }).join('')+'</select>'+
@@ -1147,7 +1223,11 @@ function followSection(today){
       '<optgroup label="KPI críticos">'+S.kpis.map(function(g,gi){ var n=g.codes.reduce(function(s2,c){ return s2+(codeN[norm(c)]||0); },0); return opt('g:'+gi, g.name+' ('+n+')', AF.kpi); }).join('')+'</optgroup>'+
       '<optgroup label="Por código">'+Object.keys(codes).sort().map(function(k){ return opt('c:'+k, kpiLabel(codes[k])+' ('+codeN[k]+')', AF.kpi); }).join('')+'</optgroup></select>'+
     '<label class="vh" for="afPil">Pilar</label><select id="afPil">'+opt('all','Todos los pilares',AF.pil)+Object.keys(pil).sort().map(function(k){ return opt(k, k+' ('+pil[k]+')', AF.pil); }).join('')+'</select>'+
-    '<label class="vh" for="afPer">Mes de creación</label><select id="afPer">'+opt('all','Creadas en cualquier mes',AF.per)+months().slice().reverse().map(function(k){ return opt(k, 'Creadas en '+mesLabel(k), AF.per); }).join('')+'</select>'+
+    '<label class="vh" for="afRt">Rutina</label><select id="afRt">'+opt('all','Todas las rutinas',AF.rt)+Object.keys(rtO).sort(function(a,b){ return rtO[a].localeCompare(rtO[b],'es'); }).map(function(k){ return opt(k, rtO[k]+' ('+(rtN[k]||0)+')', AF.rt); }).join('')+'</select>'+
+    '<label class="vh" for="afPer">Fecha de creación</label><select id="afPer">'+opt('all','Creadas en cualquier fecha',AF.per)+
+      '<optgroup label="Por días">'+opt('d1','Ayer (D-1, '+dLabel(todayDn()-1)+')',AF.per)+opt('d0','Hoy',AF.per)+opt('w7','Últimos 7 días',AF.per)+opt('d30','Últimos 30 días',AF.per)+opt('rng','Entre fechas…',AF.per)+'</optgroup>'+
+      '<optgroup label="Por mes">'+months().slice().reverse().map(function(k){ return opt(k, 'Creadas en '+mesLabel(k), AF.per); }).join('')+'</optgroup></select>'+
+    (AF.per==='rng'?'<label class="sub" for="afFrom">Desde <input type="date" id="afFrom" value="'+(AF.from!=null?isoD(AF.from):'')+'"></label><label class="sub" for="afTo">hasta <input type="date" id="afTo" value="'+(AF.to!=null?isoD(AF.to):'')+'"></label>':'')+
     '<label class="vh" for="actQ">Buscar</label><input type="search" id="actQ" placeholder="Buscar texto, rutina o folio" value="'+esc(S.q)+'"></div>';
   v+='<section class="card">'+followTable(list,today)+'</section>';
   return v;
@@ -1455,8 +1535,10 @@ document.addEventListener('click', function(e){
   if(t.dataset.rm){ var cr=S.cat[+t.dataset.rm]; if(confirm('¿Quitar la rutina "'+cr.name+'" de la lista? Los calendarios guardados no cambian.')){ S.cat.splice(+t.dataset.rm,1); save(); render(); } return; }
   if(t.dataset.addname!=null){ addRoutine(t.dataset.addname); return; }
   if(t.dataset.kf){ S.kf=t.dataset.kf; render(); return; }
+  if(t.dataset.d1){ var ld=lastData(), cur=d1Day(); D1.day = t.dataset.d1==='y' ? null : t.dataset.d1==='ld' ? ld : cur+(+t.dataset.d1); render(); refocus('[data-d1="'+t.dataset.d1+'"]'); return; }
+  if(t.dataset.d1day){ D1.day=+t.dataset.d1day; if(D1.day===todayDn()-1) D1.day=null; render(); refocus('[data-d1day="'+t.dataset.d1day+'"]'); return; }
   if(t.dataset.afst){ AF.st=t.dataset.afst; S.lim=100; render(); return; }
-  if(t.dataset.kgo!=null){ AF={st:'all', per:'all', own:'all', kpi:'g:'+t.dataset.kgo, pil:'all'}; S.q=''; S.lim=100; S.view='act'; save(); render(); var fs=$('afKpi'); if(fs) fs.scrollIntoView({block:'center'}); return; }
+  if(t.dataset.kgo!=null){ AF=afNew({st:'all', kpi:'g:'+t.dataset.kgo}); S.q=''; S.lim=100; S.view='act'; save(); render(); var fs=$('afKpi'); if(fs) fs.scrollIntoView({block:'center'}); return; }
   if(t.dataset.ku){ S.ku=t.dataset.ku; render(); return; }
   if(t.dataset.kopen!=null){ var kn=t.dataset.kopen; if(S.kopen[kn]) delete S.kopen[kn]; else S.kopen[kn]=1; render(); refocus('[data-kopen="'+CSS.escape(kn)+'"]'); return; }
   if(t.dataset.kadd!=null){ S.kpis.push({name:kpiLabel(t.dataset.kadd).toLowerCase().replace(/^./,function(c){ return c.toUpperCase(); }), codes:[t.dataset.kadd], u:true, why:''}); save(); render(); return; }
@@ -1486,7 +1568,8 @@ document.addEventListener('click', function(e){
     case 'addRt': addRoutine($('newRt').value); break;
     case 'moreActs': S.lim+=200; render(); break;
     case 'afDl': downloadFollow(); break;
-    case 'afClear': AF={st:'open', per:'all', own:'all', kpi:'all', pil:'all'}; S.q=''; S.lim=100; render(); break;
+    case 'afClear': AF=afNew(); S.q=''; S.lim=100; render(); break;
+    case 'd1Follow': var dd=d1Day(); AF=afNew({st:'all', per:'rng', from:dd, to:dd, own:D1.own, rt:D1.rt}); S.q=''; S.lim=100; S.view='act'; save(); render(); var fa=$('afPer'); if(fa) fa.scrollIntoView({block:'center'}); break;
     case 'moreKpi': S.olim=1e9; render(); break;
     case 'kNew': var nn=clean($('knew').value); if(nn){ S.kpis.push({name:nn, codes:[], u:true, why:''}); S.kedOpen=true; save(); render(); } break;
     case 'kReset': if(confirm('¿Volver a la lista sugerida de KPI críticos? Se pierden los cambios hechos a la lista.')){ S.kpis=defKpis(); save(); render(); } break;
@@ -1516,7 +1599,10 @@ document.addEventListener('change', function(e){
   if(t.id==='showAll'){ S.showAll=t.checked; save(); render(); return; }
   if(t.id==='showOff'){ S.showOff=t.checked; save(); render(); return; }
   if(t.id==='hastaIn'){ S.hasta=fromIso(t.value); save(); render(); return; }
-  if(t.id==='afOwn'||t.id==='afKpi'||t.id==='afPil'||t.id==='afPer'){ AF[{afOwn:'own',afKpi:'kpi',afPil:'pil',afPer:'per'}[t.id]]=t.value; S.lim=100; render(); refocus('#'+t.id); return; }
+  if(t.id==='afOwn'||t.id==='afKpi'||t.id==='afPil'||t.id==='afPer'||t.id==='afRt'){ AF[{afOwn:'own',afKpi:'kpi',afPil:'pil',afPer:'per',afRt:'rt'}[t.id]]=t.value; S.lim=100; render(); refocus('#'+t.id); return; }
+  if(t.id==='afFrom'||t.id==='afTo'){ AF[t.id==='afFrom'?'from':'to']=fromIso(t.value); S.lim=100; render(); refocus('#'+t.id); return; }
+  if(t.id==='d1Day'){ var nd=fromIso(t.value); if(nd!=null){ D1.day = nd===todayDn()-1 ? null : nd; render(); } return; }
+  if(t.id==='d1Own'||t.id==='d1Rt'){ D1[t.id==='d1Own'?'own':'rt']=t.value; render(); refocus('#'+t.id); return; }
   if(t.id==='metaIn'){ var m=+t.value; if(m>=1&&m<=100){ S.meta=m/100; save(); } render(); return; }
   if(t.id==='calMonth'){ if(/^\d{4}-\d{2}$/.test(t.value)){ S.calKey=t.value; save(); render(); } return; }
   if(t.id==='calCd' && cal){ cal.cd=clean(t.value)||cal.cd; save(); render(); return; }
